@@ -40,3 +40,15 @@ A core part of the RAG pipeline:
 ## 📦 Why It's Called a "Pipeline"
 
 Tickets flow through multiple processing stages in sequence:
+
+```mermaid
+flowchart TD
+  A[Raw Ticket Input] --> B[Topic Classification]
+  B --> C[Sentiment Analysis]
+  C --> D[Priority Assessment]
+  D --> E[Routing Decision]
+  E -->|RAG| F[Answer Generation]
+  E -->|Route| G[Simple Routing Message]
+  F --> H[Final Output]
+  G --> H[Final Output]
+```
