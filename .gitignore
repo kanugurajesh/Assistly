@@ -1,6 +1,7 @@
 venv
-*.json
+atlan_docs.json
 .env
 TASK.md
 __pycache__
 rename.py
+/*.json
