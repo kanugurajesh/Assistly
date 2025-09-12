@@ -14,7 +14,7 @@ mongo_client = MongoClient(os.getenv("MONGODB_URI"))
 db = mongo_client.get_database("Cluster0")
 collection = db.get_collection("scraped_pages")
 
-docs = firecrawl.crawl(url="https://developer.atlan.com", limit=1)
+docs = firecrawl.crawl(url="https://developer.atlan.com", limit=700)
 
 # Store the scraped data
 import json
@@ -84,6 +84,15 @@ if docs and hasattr(docs, 'data') and docs.data:
         print(f"🔗 Source URL: https://developer.atlan.com")
         print(f"🗄️ Database: {db.name}")
         print(f"📦 Collection: {collection.name}")
+        filename = "atlan_docs_crawl_backup.json"
+        crawl_data = {
+            'success': docs.success if hasattr(docs, 'success') else True,
+            'total': docs.total if hasattr(docs, 'total') else len(docs.data),
+            'data': documents_to_insert
+        }
+        with open(filename, "w", encoding="utf-8") as f:
+            json.dump(crawl_data, f, indent=2, ensure_ascii=False, default=str)
+        print(f"💾 Backup saved to '{filename}'")
     except Exception as e:
         print(f"❌ Error inserting into MongoDB: {e}")
         # Fallback to JSON file if MongoDB fails
