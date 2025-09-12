@@ -491,38 +491,23 @@ elif page == "💬 Chat Agent":
     
     st.markdown("---")
     
-    # Input form - only show if not currently processing
-    if 'processing_message' not in st.session_state:
-        st.session_state.processing_message = False
+    # Input form
+    st.markdown("### ✉️ Send a Message")
     
-    if not st.session_state.processing_message:
-        st.markdown("### ✉️ Send a Message")
+    with st.form("chat_form", clear_on_submit=True):
+        col1, col2 = st.columns([3, 1])
         
-        with st.form("chat_form", clear_on_submit=True):
-            col1, col2 = st.columns([3, 1])
-            
-            with col1:
-                subject = st.text_input("Subject (optional):", placeholder="Brief subject line...")
-                message = st.text_area("Your question or support ticket:", placeholder="Type your question here...", height=100)
-            
-            with col2:
-                st.markdown("<br>", unsafe_allow_html=True)
-                submitted = st.form_submit_button("🚀 Send Message", type="primary", use_container_width=True)
-    
-    else:
-        # Show processing state
-        st.markdown("### ⏳ Processing your message...")
-        submitted = False
-        message = ""
-        subject = ""
+        with col1:
+            subject = st.text_input("Subject (optional):", placeholder="Brief subject line...")
+            message = st.text_area("Your question or support ticket:", placeholder="Type your question here...", height=100)
+        
+        with col2:
+            st.markdown("<br>", unsafe_allow_html=True)
+            submitted = st.form_submit_button("🚀 Send Message", type="primary", use_container_width=True)
     
     if submitted and message.strip():
-        # Set processing flag
-        st.session_state.processing_message = True
-        
         if st.session_state.rag_pipeline is None:
             st.error("RAG pipeline not initialized. Please check your configuration.")
-            st.session_state.processing_message = False
         else:
             # Add user message
             st.session_state.messages.append({
@@ -576,11 +561,8 @@ elif page == "💬 Chat Agent":
                         "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
                     })
             
-            # Clear processing flag
-            st.session_state.processing_message = False
-        
-        # Single rerun after processing is complete
-        st.rerun()
+            # Rerun to update the chat display
+            st.rerun()
     
     # Sample questions
     st.markdown("### 💡 Try these sample questions:")
