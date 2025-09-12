@@ -3,6 +3,7 @@ import json
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
+from fastembed import TextEmbedding
 import google.generativeai as genai
 
 load_dotenv()
@@ -15,7 +16,8 @@ qdrant_client = QdrantClient(
 )
 
 # Configuration
-EMBEDDING_MODEL = "models/gemini-embedding-001"
+EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model (matches qdrant-ingestion.py)
+VECTOR_SIZE = 384  # BGE small model vector size
 LLM_MODEL = "gemini-1.5-flash"
 COLLECTION_NAME = "atlan_docs"
 TOP_K = 5
@@ -23,16 +25,16 @@ TOP_K = 5
 class AtlanRAG:
     def __init__(self):
         self.llm_model = genai.GenerativeModel(LLM_MODEL)
+        self.embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
     
     def generate_query_embedding(self, query: str) -> List[float]:
-        """Generate embedding for user query"""
+        """Generate embedding for user query using FastEmbed"""
         try:
-            result = genai.embed_content(
-                model=EMBEDDING_MODEL,
-                content=query,
-                task_type="retrieval_query"
-            )
-            return result['embedding']
+            # Generate embedding using FastEmbed
+            embeddings = list(self.embedding_model.embed([query]))
+            if embeddings:
+                return embeddings[0].tolist() if hasattr(embeddings[0], 'tolist') else list(embeddings[0])
+            return []
         except Exception as e:
             print(f"Error generating query embedding: {e}")
             return []
