@@ -6,7 +6,6 @@ import time
 
 # Import from local rag_pipeline module in the same directory
 from rag_pipeline import RAGPipeline
-import requests
 
 # Page configuration
 st.set_page_config(
@@ -618,6 +617,6 @@ elif page == "💬 Chat Agent":
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #6b7280; font-size: 14px;">
-    Built with Streamlit, Gemini AI, and Qdrant Vector Database
+    Built with Streamlit, OpenAI GPT-4o, FastEmbed, and Qdrant Vector Database
 </div>
 """, unsafe_allow_html=True)
