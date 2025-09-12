@@ -6,7 +6,6 @@ import time
 
 # Import from local rag_pipeline module in the same directory
 from rag_pipeline import RAGPipeline
-import requests
 
 # Page configuration
 st.set_page_config(
@@ -50,29 +49,33 @@ st.markdown("""
     }
     
     .user-message {
-        background: #dbeafe;
+        background: #2563eb;
         border-left: 4px solid #3b82f6;
+        color: white;
     }
     
     .assistant-message {
-        background: #f0fdf4;
+        background: #059669;
         border-left: 4px solid #10b981;
+        color: white;
     }
     
     .analysis-box {
-        background: #fef3c7;
+        background: #d97706;
         border: 1px solid #f59e0b;
         border-radius: 0.5rem;
         padding: 1rem;
         margin: 0.5rem 0;
+        color: white;
     }
     
     .sources-box {
-        background: #ecfdf5;
+        background: #059669;
         border: 1px solid #10b981;
         border-radius: 0.5rem;
         padding: 1rem;
         margin: 0.5rem 0;
+        color: white;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -488,23 +491,38 @@ elif page == "💬 Chat Agent":
     
     st.markdown("---")
     
-    # Input form
-    st.markdown("### ✉️ Send a Message")
+    # Input form - only show if not currently processing
+    if 'processing_message' not in st.session_state:
+        st.session_state.processing_message = False
     
-    with st.form("chat_form", clear_on_submit=True):
-        col1, col2 = st.columns([3, 1])
+    if not st.session_state.processing_message:
+        st.markdown("### ✉️ Send a Message")
         
-        with col1:
-            subject = st.text_input("Subject (optional):", placeholder="Brief subject line...")
-            message = st.text_area("Your question or support ticket:", placeholder="Type your question here...", height=100)
-        
-        with col2:
-            st.markdown("<br>", unsafe_allow_html=True)
-            submitted = st.form_submit_button("🚀 Send Message", type="primary", use_container_width=True)
+        with st.form("chat_form", clear_on_submit=True):
+            col1, col2 = st.columns([3, 1])
+            
+            with col1:
+                subject = st.text_input("Subject (optional):", placeholder="Brief subject line...")
+                message = st.text_area("Your question or support ticket:", placeholder="Type your question here...", height=100)
+            
+            with col2:
+                st.markdown("<br>", unsafe_allow_html=True)
+                submitted = st.form_submit_button("🚀 Send Message", type="primary", use_container_width=True)
+    
+    else:
+        # Show processing state
+        st.markdown("### ⏳ Processing your message...")
+        submitted = False
+        message = ""
+        subject = ""
     
     if submitted and message.strip():
+        # Set processing flag
+        st.session_state.processing_message = True
+        
         if st.session_state.rag_pipeline is None:
             st.error("RAG pipeline not initialized. Please check your configuration.")
+            st.session_state.processing_message = False
         else:
             # Add user message
             st.session_state.messages.append({
@@ -551,16 +569,18 @@ elif page == "💬 Chat Agent":
                     
                     st.session_state.messages.append(assistant_message)
                     
-                    # Rerun to show new messages
-                    st.rerun()
-                    
                 except Exception as e:
                     st.error(f"Error processing message: {str(e)}")
                     st.session_state.messages.append({
                         "role": "assistant",
                         "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
                     })
-                    st.rerun()
+            
+            # Clear processing flag
+            st.session_state.processing_message = False
+        
+        # Single rerun after processing is complete
+        st.rerun()
     
     # Sample questions
     st.markdown("### 💡 Try these sample questions:")
@@ -569,26 +589,34 @@ elif page == "💬 Chat Agent":
     
     with col1:
         if st.button("How do I connect Snowflake to Atlan? What permissions are required?", key="sample1"):
-            st.session_state.sample_message = "How do I connect Snowflake to Atlan? What permissions are required?"
+            # Add sample message directly to conversation
+            sample_text = "How do I connect Snowflake to Atlan? What permissions are required?"
+            st.session_state.messages.append({"role": "user", "content": sample_text})
             st.rerun()
         
         if st.button("What is data lineage and how does Atlan track it automatically?", key="sample2"):
-            st.session_state.sample_message = "What is data lineage and how does Atlan track it automatically?"
+            # Add sample message directly to conversation
+            sample_text = "What is data lineage and how does Atlan track it automatically?"
+            st.session_state.messages.append({"role": "user", "content": sample_text})
             st.rerun()
     
     with col2:
         if st.button("How do I set up SAML SSO with my identity provider?", key="sample3"):
-            st.session_state.sample_message = "How do I set up SAML SSO with my identity provider?"
+            # Add sample message directly to conversation
+            sample_text = "How do I set up SAML SSO with my identity provider?"
+            st.session_state.messages.append({"role": "user", "content": sample_text})
             st.rerun()
         
         if st.button("How do I use the Python SDK to create assets programmatically?", key="sample4"):
-            st.session_state.sample_message = "How do I use the Python SDK to create assets programmatically?"
+            # Add sample message directly to conversation
+            sample_text = "How do I use the Python SDK to create assets programmatically?"
+            st.session_state.messages.append({"role": "user", "content": sample_text})
             st.rerun()
 
 # Footer
 st.markdown("---")
 st.markdown("""
 <div style="text-align: center; color: #6b7280; font-size: 14px;">
-    Built with Streamlit, Gemini AI, and Qdrant Vector Database
+    Built with Streamlit, OpenAI GPT-4o, FastEmbed, and Qdrant Vector Database
 </div>
 """, unsafe_allow_html=True)

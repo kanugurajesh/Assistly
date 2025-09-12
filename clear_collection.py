@@ -7,7 +7,7 @@ load_dotenv()
 # Initialize MongoDB connection
 mongo_client = MongoClient(os.getenv("MONGODB_URI"))
 db = mongo_client.get_database("Cluster0")
-collection = db.get_collection("scraped_pages")
+collection = db.get_collection("atlan_developer_dos")
 
 try:
     # Delete all documents in the collection
