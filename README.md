@@ -59,6 +59,7 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **docs.atlan.com**: Product documentation
 - **developer.atlan.com**: API and SDK documentation
 - **Firecrawl**: Web scraping service
+- **MongoDB**: Persistent storage for all crawled website data, enabling future retrieval and reprocessing
 
 ## 📋 Prerequisites
 
@@ -103,6 +104,7 @@ python scrape.py
 # Optional: Scrape docs.atlan.com
 # Update scrape.py URL and run again
 ```
+*Note: All scraped content is automatically stored in MongoDB for future use and reprocessing without needing to re-crawl the websites.*
 
 **Step 2: Ingest to Vector Database**
 ```bash
