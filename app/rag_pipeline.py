@@ -4,12 +4,12 @@ from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
-import google.generativeai as genai
+from openai import OpenAI
 
 load_dotenv()
 
 # Initialize clients
-genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
+openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),
     api_key=os.getenv("QDRANT_API_KEY"),
@@ -18,13 +18,13 @@ qdrant_client = QdrantClient(
 # Configuration
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model (matches qdrant-ingestion.py)
 VECTOR_SIZE = 384  # BGE small model vector size
-LLM_MODEL = "gemini-1.5-flash"
+LLM_MODEL = "gpt-4o"
 COLLECTION_NAME = "atlan_docs"
 TOP_K = 5
 
 class AtlanRAG:
     def __init__(self):
-        self.llm_model = genai.GenerativeModel(LLM_MODEL)
+        self.openai_client = openai_client
         self.embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
     
     def generate_query_embedding(self, query: str) -> List[float]:
@@ -108,8 +108,16 @@ class AtlanRAG:
         Answer:"""
 
         try:
-            response = self.llm_model.generate_content(prompt)
-            return response.text
+            response = self.openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are a helpful assistant that answers questions about Atlan based on the provided documentation context."},
+                    {"role": "user", "content": prompt}
+                ],
+                max_tokens=1000,
+                temperature=0.3
+            )
+            return response.choices[0].message.content
         except Exception as e:
             print(f"Error generating response: {e}")
             return "I encountered an error while generating a response. Please try again."
@@ -135,7 +143,7 @@ class AtlanRAG:
 # Classification system
 class TicketClassifier:
     def __init__(self):
-        self.llm_model = genai.GenerativeModel(LLM_MODEL)
+        self.openai_client = openai_client
     
     def classify_ticket(self, ticket_subject: str, ticket_body: str) -> Dict[str, Any]:
         """Classify a support ticket"""
@@ -179,9 +187,17 @@ class TicketClassifier:
         Respond with only the JSON object, no additional text."""
 
         try:
-            response = self.llm_model.generate_content(classification_prompt)
+            response = self.openai_client.chat.completions.create(
+                model=LLM_MODEL,
+                messages=[
+                    {"role": "system", "content": "You are an AI assistant that classifies customer support tickets for Atlan, a data catalog platform. Always respond with only valid JSON."},
+                    {"role": "user", "content": classification_prompt}
+                ],
+                max_tokens=500,
+                temperature=0.1
+            )
             # Parse the JSON response
-            classification_text = response.text.strip()
+            classification_text = response.choices[0].message.content.strip()
             
             # Remove any code block markers if present
             if classification_text.startswith("```"):
