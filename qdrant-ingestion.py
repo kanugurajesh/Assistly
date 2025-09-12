@@ -1,7 +1,5 @@
 import os
-import json
-import time
-from typing import List, Dict, Any
+from typing import List, Dict
 from dotenv import load_dotenv
 from pymongo import MongoClient
 from qdrant_client import QdrantClient

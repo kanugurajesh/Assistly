@@ -83,19 +83,31 @@ if 'messages' not in st.session_state:
 if 'classified_tickets' not in st.session_state:
     st.session_state.classified_tickets = None
 if 'rag_pipeline' not in st.session_state:
-    try:
-        st.session_state.rag_pipeline = RAGPipeline()
-    except Exception as e:
-        st.error(f"Failed to initialize RAG pipeline: {str(e)}")
-        st.session_state.rag_pipeline = None
+    with st.spinner("Initializing AI pipeline..."):
+        try:
+            st.session_state.rag_pipeline = RAGPipeline()
+            st.success("AI pipeline initialized successfully!")
+            time.sleep(1)  # Brief pause to show success message
+        except Exception as e:
+            st.error(f"Failed to initialize RAG pipeline: {str(e)}")
+            st.warning("Some features may be limited. Check your environment configuration.")
+            st.session_state.rag_pipeline = None
 
 def load_sample_tickets():
     """Load sample tickets from file"""
     try:
         # Look for sample_tickets.json in the same directory as main.py (app/)
         sample_file = os.path.join(os.path.dirname(__file__), 'sample_tickets.json')
-        with open(sample_file, 'r') as f:
-            return json.load(f)
+        st.info(f"Loading tickets from: {sample_file}")
+        
+        if not os.path.exists(sample_file):
+            st.error(f"Sample tickets file not found at: {sample_file}")
+            return []
+            
+        with open(sample_file, 'r', encoding='utf-8') as f:
+            tickets = json.load(f)
+            st.success(f"Successfully loaded {len(tickets)} sample tickets")
+            return tickets
     except Exception as e:
         st.error(f"Error loading sample tickets: {str(e)}")
         return []
@@ -203,10 +215,39 @@ def get_sentiment_color(sentiment):
 
 # Sidebar navigation
 st.sidebar.title("🤖 Atlan Support Copilot")
+
+# Handle query params for navigation
+query_params = st.query_params
+if "page" in query_params:
+    current_page = query_params["page"]
+else:
+    current_page = "🏠 Home"
+
+# Map query param values to display names
+page_mapping = {
+    "📊 Dashboard": "📊 Dashboard",
+    "💬 Chat Agent": "💬 Chat Agent",
+    "🏠 Home": "🏠 Home"
+}
+
+# Find the index for the selectbox
+page_options = ["🏠 Home", "📊 Dashboard", "💬 Chat Agent"]
+try:
+    current_index = page_options.index(current_page)
+except ValueError:
+    current_index = 0
+    current_page = "🏠 Home"
+
 page = st.sidebar.selectbox(
     "Choose a page:",
-    ["🏠 Home", "📊 Dashboard", "💬 Chat Agent"]
+    page_options,
+    index=current_index
 )
+
+# Update query params if page selection changed
+if page != current_page:
+    st.query_params["page"] = page
+    st.rerun()
 
 # Main content based on selected page
 if page == "🏠 Home":
@@ -224,15 +265,15 @@ if page == "🏠 Home":
         st.markdown("### 📊 Bulk Ticket Classification")
         st.write("Automatically classify and analyze 30+ sample support tickets with AI-powered categorization by topic, sentiment, and priority.")
         if st.button("🚀 View Dashboard", type="primary"):
-            st.experimental_set_query_params(page="📊 Dashboard")
-            st.experimental_rerun()
+            st.query_params["page"] = "📊 Dashboard"
+            st.rerun()
     
     with col2:
         st.markdown("### 💬 Interactive AI Agent")
         st.write("Submit questions and get intelligent responses powered by RAG using Atlan's documentation, with automatic routing for complex issues.")
         if st.button("🤖 Try Chat Agent", type="primary"):
-            st.experimental_set_query_params(page="💬 Chat Agent")
-            st.experimental_rerun()
+            st.query_params["page"] = "💬 Chat Agent"
+            st.rerun()
     
     st.markdown("---")
     st.markdown("### ✨ Key Features")
@@ -511,7 +552,7 @@ elif page == "💬 Chat Agent":
                     st.session_state.messages.append(assistant_message)
                     
                     # Rerun to show new messages
-                    st.experimental_rerun()
+                    st.rerun()
                     
                 except Exception as e:
                     st.error(f"Error processing message: {str(e)}")
@@ -519,7 +560,7 @@ elif page == "💬 Chat Agent":
                         "role": "assistant",
                         "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
                     })
-                    st.experimental_rerun()
+                    st.rerun()
     
     # Sample questions
     st.markdown("### 💡 Try these sample questions:")
@@ -529,20 +570,20 @@ elif page == "💬 Chat Agent":
     with col1:
         if st.button("How do I connect Snowflake to Atlan? What permissions are required?", key="sample1"):
             st.session_state.sample_message = "How do I connect Snowflake to Atlan? What permissions are required?"
-            st.experimental_rerun()
+            st.rerun()
         
         if st.button("What is data lineage and how does Atlan track it automatically?", key="sample2"):
             st.session_state.sample_message = "What is data lineage and how does Atlan track it automatically?"
-            st.experimental_rerun()
+            st.rerun()
     
     with col2:
         if st.button("How do I set up SAML SSO with my identity provider?", key="sample3"):
             st.session_state.sample_message = "How do I set up SAML SSO with my identity provider?"
-            st.experimental_rerun()
+            st.rerun()
         
         if st.button("How do I use the Python SDK to create assets programmatically?", key="sample4"):
             st.session_state.sample_message = "How do I use the Python SDK to create assets programmatically?"
-            st.experimental_rerun()
+            st.rerun()
 
 # Footer
 st.markdown("---")
