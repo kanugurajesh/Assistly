@@ -235,11 +235,20 @@ def process_sample_question(sample_text):
                     response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                     sources = response_data.get('sources', [])
                     response_type = 'rag'
+
+                    # Include enhanced search information
+                    search_info = {
+                        "query_enhancement_enabled": response_data.get('query_enhancement_enabled', False),
+                        "hybrid_search_enabled": response_data.get('hybrid_search_enabled', False),
+                        "search_methods_used": response_data.get('search_methods_used', []),
+                        "retrieved_chunks": response_data.get('retrieved_chunks', 0)
+                    }
                 else:
                     primary_topic = classification.get('topic_tags', ['Unknown'])[0] if classification.get('topic_tags') else 'Unknown'
                     response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
                     sources = []
                     response_type = 'routing'
+                    search_info = None
 
                 assistant_message = {
                     "role": "assistant",
@@ -250,6 +259,9 @@ def process_sample_question(sample_text):
 
                 if sources:
                     assistant_message["sources"] = sources
+
+                if search_info:
+                    assistant_message["search_info"] = search_info
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
@@ -520,16 +532,46 @@ elif page == "💬 Chat Agent":
                     
                     st.markdown("</div>", unsafe_allow_html=True)
                 
+                # Show enhanced search information if available
+                if "search_info" in message:
+                    search_info = message["search_info"]
+                    st.markdown("""
+                    <div style="background: #1e40af; border: 1px solid #3b82f6; border-radius: 0.5rem; padding: 1rem; margin: 0.5rem 0; color: white;">
+                        <h4>🔍 Search Enhancement Details</h4>
+                    """, unsafe_allow_html=True)
+
+                    col1, col2 = st.columns(2)
+                    with col1:
+                        if search_info.get("query_enhancement_enabled"):
+                            st.markdown("✅ **Query Enhancement**: Active")
+                        else:
+                            st.markdown("❌ **Query Enhancement**: Disabled")
+
+                        if search_info.get("hybrid_search_enabled"):
+                            st.markdown("✅ **Hybrid Search**: Active")
+                        else:
+                            st.markdown("❌ **Hybrid Search**: Vector Only")
+
+                    with col2:
+                        methods = search_info.get("search_methods_used", [])
+                        if methods:
+                            st.markdown(f"**Search Methods**: {', '.join(methods).title()}")
+
+                        chunks = search_info.get("retrieved_chunks", 0)
+                        st.markdown(f"**Retrieved Chunks**: {chunks}")
+
+                    st.markdown("</div>", unsafe_allow_html=True)
+
                 # Show sources if available
                 if "sources" in message and message["sources"]:
                     st.markdown("""
                     <div class="sources-box">
                         <h4>📚 Sources</h4>
                     """, unsafe_allow_html=True)
-                    
+
                     for source in message["sources"]:
                         st.markdown(f'• <a href="{source}" target="_blank">{source}</a>', unsafe_allow_html=True)
-                    
+
                     st.markdown("</div>", unsafe_allow_html=True)
     
     st.markdown("---")
@@ -577,13 +619,22 @@ elif page == "💬 Chat Agent":
                         response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                         sources = response_data.get('sources', [])
                         response_type = 'rag'
+
+                        # Include enhanced search information
+                        search_info = {
+                            "query_enhancement_enabled": response_data.get('query_enhancement_enabled', False),
+                            "hybrid_search_enabled": response_data.get('hybrid_search_enabled', False),
+                            "search_methods_used": response_data.get('search_methods_used', []),
+                            "retrieved_chunks": response_data.get('retrieved_chunks', 0)
+                        }
                     else:
                         # Generate routing response
                         primary_topic = classification.get('topic_tags', ['Unknown'])[0] if classification.get('topic_tags') else 'Unknown'
                         response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
                         sources = []
                         response_type = 'routing'
-                    
+                        search_info = None
+
                     # Add assistant response
                     assistant_message = {
                         "role": "assistant",
@@ -591,9 +642,12 @@ elif page == "💬 Chat Agent":
                         "classification": classification,
                         "response_type": response_type
                     }
-                    
+
                     if sources:
                         assistant_message["sources"] = sources
+
+                    if search_info:
+                        assistant_message["search_info"] = search_info
                     
                     st.session_state.messages.append(assistant_message)
                     

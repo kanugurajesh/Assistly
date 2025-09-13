@@ -7,6 +7,7 @@ from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from fastembed import TextEmbedding
 import time
+import re
 from datetime import datetime
 from utils import get_mongodb_collection, close_mongodb_client
 
@@ -62,30 +63,83 @@ def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bo
         print(f"Error creating collection: {e}")
         return False
 
+def preserve_code_blocks(text: str) -> str:
+    """Preserve code blocks by adding extra spacing around them"""
+    # Pattern to match code blocks (both ``` and indented)
+    code_block_pattern = r'(```[\s\S]*?```|
+    [^\n]*(?:\n    [^\n]*)*)
+
+    # Add extra newlines before and after code blocks to prevent splitting
+    def replace_code_block(match):
+        code_block = match.group(0)
+        return f"\n\n{code_block}\n\n"
+
+    # Apply the replacement
+    preserved_text = re.sub(code_block_pattern, replace_code_block, text)
+    return preserved_text
+
 def chunk_text(text: str, metadata: Dict) -> List[Dict]:
-    """Chunk text using RecursiveCharacterTextSplitter"""
+    """Chunk text using enhanced RecursiveCharacterTextSplitter with code block preservation"""
+    # Step 1: Preserve code blocks by adding extra spacing
+    processed_text = preserve_code_blocks(text)
+
+    # Step 2: Enhanced separators that preserve markdown structure and code blocks
     text_splitter = RecursiveCharacterTextSplitter(
         chunk_size=CHUNK_SIZE,
         chunk_overlap=CHUNK_OVERLAP,
-        separators=["\n\n", "\n", " ", ""],
-        keep_separator=True
+        separators=[
+            "\n\n\n",  # Major section breaks
+            "\n\n",    # Paragraph breaks
+            "\n```\n", # Code block endings
+            "```\n",   # Code block starts
+            "\n# ",    # Major headers
+            "\n## ",   # Section headers
+            "\n### ",  # Subsection headers
+            "\n#### ", # Sub-subsection headers
+            "\n- ",    # List items
+            "\n* ",    # Alternative list items
+            "\n1. ",   # Numbered lists
+            "\n2. ",   # Numbered lists continued
+            "\n",      # Line breaks
+            ". ",      # Sentence endings
+            "? ",      # Question endings
+            "! ",      # Exclamation endings
+            "; ",      # Semicolon breaks
+            ", ",      # Comma breaks (for very long sentences)
+            " ",       # Word boundaries
+            ""
+        ],
+        keep_separator=True,
+        is_separator_regex=False
     )
-    
-    chunks = text_splitter.split_text(text)
-    
+
+    # Step 3: Split the processed text
+    chunks = text_splitter.split_text(processed_text)
+
+    # Step 4: Create enhanced chunk metadata with quality indicators
     chunked_docs = []
     for i, chunk in enumerate(chunks):
         if chunk.strip():  # Skip empty chunks
+            # Calculate chunk quality metrics
+            has_code = '```' in chunk or chunk.count('    ') > 3
+            has_headers = any(chunk.startswith(header) for header in ['# ', '## ', '### '])
+            word_count = len(chunk.split())
+
             chunk_doc = {
-                "text": chunk,
+                "text": chunk.strip(),
                 "source_url": metadata.get("url", ""),
                 "title": metadata.get("title", ""),
                 "doc_type": "developer",  # Will be updated based on source
                 "chunk_index": i,
-                "total_chunks": len(chunks)
+                "total_chunks": len(chunks),
+                "word_count": word_count,
+                "has_code": has_code,
+                "has_headers": has_headers,
+                "chunk_quality": "high" if (has_code or has_headers or word_count > 100) else "medium"
             }
             chunked_docs.append(chunk_doc)
-    
+
+    print(f"Created {len(chunked_docs)} chunks from '{metadata.get('title', 'Unknown')}' ({len([c for c in chunked_docs if c['has_code']])} with code, {len([c for c in chunked_docs if c['has_headers']])} with headers)")
     return chunked_docs
 
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
@@ -261,6 +315,10 @@ def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
                 "chunk_index": chunk["chunk_index"],
                 "total_chunks": chunk["total_chunks"],
                 "mongodb_id": chunk.get("mongodb_id", ""),
+                "word_count": chunk.get("word_count", 0),
+                "has_code": chunk.get("has_code", False),
+                "has_headers": chunk.get("has_headers", False),
+                "chunk_quality": chunk.get("chunk_quality", "medium"),
                 "ingested_at": datetime.now().isoformat()
             }
         )
