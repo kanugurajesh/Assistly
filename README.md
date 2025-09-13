@@ -75,7 +75,7 @@ An AI-powered customer support system that automatically classifies tickets and 
 
 ```bash
 git clone https://github.com/kanugurajesh/Assistly
-cd crawling
+cd Assistly
 ```
 
 Create `.env` file:
