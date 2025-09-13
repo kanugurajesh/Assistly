@@ -8,6 +8,30 @@ from openai import OpenAI
 
 load_dotenv()
 
+# Validate required environment variables
+def validate_environment_variables() -> None:
+    """Validate that all required environment variables are set"""
+    required_vars = {
+        "OPENAI_API_KEY": "OpenAI API key for GPT-4o",
+        "QDRANT_URI": "Qdrant Cloud endpoint URL",
+        "QDRANT_API_KEY": "Qdrant Cloud API key"
+    }
+
+    missing_vars = []
+    for var_name, description in required_vars.items():
+        if not os.getenv(var_name):
+            missing_vars.append(f"{var_name} ({description})")
+
+    if missing_vars:
+        raise EnvironmentError(
+            f"Missing required environment variables:\n" +
+            "\n".join(f"  - {var}" for var in missing_vars) +
+            "\n\nPlease check your .env file configuration."
+        )
+
+# Validate environment on import
+validate_environment_variables()
+
 # Initialize clients
 openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 qdrant_client = QdrantClient(
@@ -16,14 +40,19 @@ qdrant_client = QdrantClient(
 )
 
 # Configuration
+# Configuration constants
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model (matches qdrant-ingestion.py)
 VECTOR_SIZE = 384  # BGE small model vector size
 LLM_MODEL = "gpt-4o"
 COLLECTION_NAME = "atlan_docs"
 TOP_K = 5
+SCORE_THRESHOLD = 0.3  # Minimum similarity score for search results
+MAX_TOKENS = 1000  # Maximum tokens for OpenAI response
+TEMPERATURE = 0.3  # OpenAI temperature for response generation
+CLASSIFICATION_TEMPERATURE = 0.1  # Lower temperature for more consistent classification
 
 class AtlanRAG:
-    def __init__(self):
+    def __init__(self) -> None:
         self.openai_client = openai_client
         self.embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
     
@@ -35,8 +64,11 @@ class AtlanRAG:
             if embeddings:
                 return embeddings[0].tolist() if hasattr(embeddings[0], 'tolist') else list(embeddings[0])
             return []
-        except Exception as e:
+        except (RuntimeError, ValueError, TypeError) as e:
             print(f"Error generating query embedding: {e}")
+            return []
+        except Exception as e:
+            print(f"Unexpected error generating query embedding: {e}")
             return []
     
     def search_documents(self, query: str, top_k: int = TOP_K) -> List[Dict]:
@@ -52,7 +84,7 @@ class AtlanRAG:
                 query_vector=query_embedding,
                 limit=top_k,
                 with_payload=True,
-                score_threshold=0.3
+                score_threshold=SCORE_THRESHOLD
             )
             
             results = []
@@ -67,8 +99,14 @@ class AtlanRAG:
             
             return results
             
+        except (ConnectionError, TimeoutError) as e:
+            print(f"Connection error searching documents: {e}")
+            return []
+        except (ValueError, KeyError) as e:
+            print(f"Data error searching documents: {e}")
+            return []
         except Exception as e:
-            print(f"Error searching documents: {e}")
+            print(f"Unexpected error searching documents: {e}")
             return []
     
     def extract_unique_sources(self, search_results: List[Dict]) -> List[str]:
@@ -114,13 +152,19 @@ class AtlanRAG:
                     {"role": "system", "content": "You are a helpful assistant that answers questions about Atlan based on the provided documentation context."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=1000,
-                temperature=0.3
+                max_tokens=MAX_TOKENS,
+                temperature=TEMPERATURE
             )
             return response.choices[0].message.content
+        except ConnectionError as e:
+            print(f"OpenAI API connection error: {e}")
+            return "I'm having trouble connecting to the AI service. Please try again in a moment."
+        except ValueError as e:
+            print(f"OpenAI API validation error: {e}")
+            return "I encountered an issue with your request format. Please try rephrasing your question."
         except Exception as e:
-            print(f"Error generating response: {e}")
-            return "I encountered an error while generating a response. Please try again."
+            print(f"Unexpected error generating response: {e}")
+            return "I encountered an unexpected error while generating a response. Please try again."
     
     def answer_question(self, query: str) -> Dict[str, Any]:
         """Main RAG pipeline function"""
@@ -142,7 +186,7 @@ class AtlanRAG:
 
 # Classification system
 class TicketClassifier:
-    def __init__(self):
+    def __init__(self) -> None:
         self.openai_client = openai_client
     
     def classify_ticket(self, ticket_subject: str, ticket_body: str) -> Dict[str, Any]:
@@ -194,7 +238,7 @@ class TicketClassifier:
                     {"role": "user", "content": classification_prompt}
                 ],
                 max_tokens=500,
-                temperature=0.1
+                temperature=CLASSIFICATION_TEMPERATURE
             )
             # Parse the JSON response
             classification_text = response.choices[0].message.content.strip()
@@ -208,15 +252,29 @@ class TicketClassifier:
             classification = json.loads(classification_text)
             return classification
             
+        except ConnectionError as e:
+            print(f"OpenAI API connection error during classification: {e}")
+            return {
+                "topic_tags": ["Connection Error"],
+                "sentiment": "Neutral",
+                "priority": "P1 (Medium)"
+            }
+        except (json.JSONDecodeError, ValueError) as e:
+            print(f"JSON parsing error during classification: {e}")
+            return {
+                "topic_tags": ["Parsing Error"],
+                "sentiment": "Neutral",
+                "priority": "P1 (Medium)"
+            }
         except Exception as e:
-            print(f"Error classifying ticket: {e}")
+            print(f"Unexpected error classifying ticket: {e}")
             return {
                 "topic_tags": ["Unknown"],
                 "sentiment": "Neutral",
                 "priority": "P1 (Medium)"
             }
 
-def test_rag_pipeline():
+def test_rag_pipeline() -> None:
     """Test the RAG pipeline with a sample query"""
     rag = AtlanRAG()
     
@@ -230,7 +288,7 @@ def test_rag_pipeline():
         print(f"- {source}")
     print(f"\nRetrieved {result['retrieved_chunks']} relevant chunks")
 
-def test_classification():
+def test_classification() -> None:
     """Test the classification system"""
     classifier = TicketClassifier()
     
@@ -248,8 +306,8 @@ def test_classification():
 # Integrated Pipeline Class for Streamlit
 class RAGPipeline:
     """Integrated pipeline combining classification and RAG functionality"""
-    
-    def __init__(self):
+
+    def __init__(self) -> None:
         self.rag = AtlanRAG()
         self.classifier = TicketClassifier()
     
