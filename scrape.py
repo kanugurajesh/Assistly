@@ -1,7 +1,6 @@
 from firecrawl import Firecrawl
 from dotenv import load_dotenv
 import os
-import sys
 import argparse
 from pymongo import MongoClient
 from datetime import datetime, timezone
