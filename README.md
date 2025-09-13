@@ -18,24 +18,36 @@ An AI-powered customer support system that automatically classifies tickets and 
 
 ## 🏗️ Architecture
 
+### Complete Data Pipeline Flow
 ```
-┌─────────────────┐    ┌──────────────────┐    ┌─────────────────┐
-│   Streamlit     │    │   Python         │    │   Databases     │
-│   Web App       │    │   AI Pipeline    │    │                 │
-├─────────────────┤    ├──────────────────┤    ├─────────────────┤
-│ • Dashboard     │◄───┤ • RAG Pipeline   │◄───┤ • MongoDB       │
-│ • Chat UI       │    │ • Classification │    │   (Raw docs)    │
-│ • Visualizations│    │ • Embeddings     │    │ • Qdrant        │
-└─────────────────┘    └──────────────────┘    │   (Vectors)     │
-                                               └─────────────────┘
-           │                        │                     ▲
-           ▼                        ▼                     │
-    ┌─────────────┐         ┌─────────────┐              │
-    │ OpenAI API  │         │ Firecrawl   │──────────────┘
-    │ • GPT-4o    │         │ • Web       │
-    │ • FastEmbed │         │   Scraping  │
-    └─────────────┘         └─────────────┘
+┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
+│ Firecrawl   │    │  MongoDB    │    │   Qdrant    │    │ Streamlit   │
+│ Web Scraper │───▶│ Document    │───▶│ Vector      │───▶│ Web App     │
+│             │    │ Storage     │    │ Database    │    │             │
+├─────────────┤    ├─────────────┤    ├─────────────┤    ├─────────────┤
+│ • docs      │    │ • Raw HTML  │    │ • Embeddings│    │ • Dashboard │
+│   atlan.com │    │ • Metadata  │    │ • FastEmbed │    │ • Chat UI   │
+│ • developer │    │ • Backup    │    │ • BGE-small │    │ • Analytics │
+│   atlan.com │    │   Files     │    │ • Search    │    │ • Real-time │
+└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
+       │                  │                  │                  │
+   scrape.py         (Persistent         qdrant_           main.py
+   (Data Prep)        Storage)         ingestion.py      (Deployment)
+                                       (Vector Prep)
+
+                    ┌─────────────────────────────────────┐
+                    │          OpenAI GPT-4o             │
+                    │    • Ticket Classification         │
+                    │    • RAG Response Generation       │
+                    │    • Sentiment & Priority Analysis │
+                    └─────────────────────────────────────┘
 ```
+
+### System Components
+- **Data Pipeline** (Root scripts): Web scraping → Storage → Vector preparation
+- **Deployment** (App folder): Streamlit application with AI capabilities
+- **AI Services**: OpenAI for classification and response generation
+- **Storage**: MongoDB for documents, Qdrant for vector search
 
 ## 🛠️ Tech Stack
 
@@ -55,19 +67,31 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **Custom CSS**: Styled components and responsive design
 - **Interactive Elements**: Real-time classification and response generation
 
-### Data Sources
-- **docs.atlan.com**: Product documentation
+### Data Sources & Pipeline
+- **Firecrawl API**: Automated web scraping service for documentation
+- **docs.atlan.com**: Product documentation and user guides
 - **developer.atlan.com**: API and SDK documentation
-- **Firecrawl**: Web scraping service
-- **MongoDB**: Persistent storage for all crawled website data, enabling future retrieval and reprocessing
+- **MongoDB**: Persistent storage for all scraped content with metadata
+- **Qdrant**: Vector database for semantic search and RAG retrieval
+
+### Pipeline Stages
+1. **Web Scraping**: Firecrawl crawls documentation sites and extracts content
+2. **Document Storage**: Raw content stored in MongoDB with full metadata
+3. **Vector Processing**: Content chunked and embedded using FastEmbed BGE-small
+4. **RAG Deployment**: Streamlit app queries Qdrant for relevant context
 
 ## 📋 Prerequisites
 
+### For Deployment (Streamlit App)
 - Python 3.8+ and pip
 - OpenAI API key
-- Qdrant Cloud instance
-- MongoDB Atlas instance
-- Firecrawl API key
+- Qdrant Cloud instance (vector database)
+- MongoDB Atlas instance (document storage)
+- Firecrawl API key (if running custom scraping)
+
+### Project Structure
+- **Root directory**: Data pipeline scripts (scrape.py, qdrant_ingestion.py)
+- **app/ directory**: Streamlit deployment application with own requirements and .env
 
 ## 🚀 Quick Start
 
@@ -78,41 +102,62 @@ git clone <repository-url>
 cd crawling
 ```
 
-Create `.env` file:
+**Project Structure Overview:**
+```
+crawling/
+├── app/                    # Streamlit deployment
+│   ├── main.py            # Main Streamlit application
+│   ├── rag_pipeline.py    # AI pipeline implementation
+│   ├── requirements.txt   # App dependencies
+│   ├── .env.example       # Environment template
+│   └── sample_tickets.json
+├── scrape.py              # Firecrawl web scraping
+├── qdrant_ingestion.py    # Vector database ingestion
+├── requirements.txt       # Data pipeline dependencies
+└── README.md
+```
+
+Create `.env` file in the `app/` directory (copy from `app/.env.example`):
 ```env
 OPENAI_API_KEY=your_openai_api_key
-QDRANT_URI=your_qdrant_endpoint
+QDRANT_URI=your_qdrant_cloud_endpoint
 QDRANT_API_KEY=your_qdrant_api_key
-MONGODB_URI=your_mongodb_connection_string
+MONGODB_URI=your_mongodb_atlas_connection_string
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
 ### 2. Install Dependencies
 
-**Python dependencies:**
+**For deployment (Streamlit app):**
 ```bash
 pip install -r app/requirements.txt
 ```
 
-### 3. Data Pipeline Setup
-
-**Step 1: Scrape Documentation**
+**For data pipeline (if running scraping/ingestion):**
 ```bash
-# Scrape developer.atlan.com (already done)
-python scrape.py
-
-# Optional: Scrape docs.atlan.com
-# Update scrape.py URL and run again
-```
-*Note: All scraped content is automatically stored in MongoDB for future use and reprocessing without needing to re-crawl the websites.*
-
-**Step 2: Ingest to Vector Database**
-```bash
-# Process MongoDB documents and create embeddings
-python qdrant-ingestion.py
+pip install -r requirements.txt
 ```
 
-### 3. Run the Application
+### 3. Data Pipeline Setup (Optional - for custom data)
+
+**Step 1: Web Scraping with Firecrawl**
+```bash
+# Scrape Atlan documentation (already completed)
+python scrape.py https://docs.atlan.com --limit 700
+python scrape.py https://developer.atlan.com --limit 300
+```
+*All scraped content automatically stored in MongoDB with metadata and backup files.*
+
+**Step 2: Vector Database Ingestion**
+```bash
+# Process MongoDB documents and create embeddings in Qdrant
+python qdrant_ingestion.py
+```
+*Chunks documents using LangChain, creates embeddings with FastEmbed BGE-small, stores in Qdrant.*
+
+**Note**: The application comes with pre-processed data, so this step is only needed for custom datasets or updates.
+
+### 4. Run the Application
 
 **Run the Streamlit app:**
 ```bash
@@ -120,7 +165,17 @@ cd app
 streamlit run main.py
 ```
 
-Access the application at `http://localhost:8501`
+The application will open automatically in your browser at `http://localhost:8501`
+
+### 5. Streamlit Deployment
+
+**Deploy to Streamlit Community Cloud:**
+1. Push your repository to GitHub
+2. Visit [share.streamlit.io](https://share.streamlit.io)
+3. Connect your GitHub repository
+4. Set main file path: `app/main.py`
+5. Add environment variables in Streamlit Cloud settings
+6. Deploy your application
 
 ## 📖 Usage Guide
 
@@ -162,54 +217,78 @@ The system analyzes tickets using structured prompts to generate:
 
 ## 🔧 Configuration Options
 
-### Environment Variables
-- `OPENAI_API_KEY`: Required for AI services
-- `QDRANT_URI`: Vector database endpoint
-- `QDRANT_API_KEY`: Authentication for Qdrant
-- `MONGODB_URI`: Document storage connection
-- `FIRECRAWL_API_KEY`: Web scraping service
+### Environment Variables (app/.env)
+- `OPENAI_API_KEY`: Required for GPT-4o classification and response generation
+- `QDRANT_URI`: Qdrant Cloud vector database endpoint
+- `QDRANT_API_KEY`: Authentication for Qdrant Cloud instance
+- `MONGODB_URI`: MongoDB Atlas connection string for document storage
+- `FIRECRAWL_API_KEY`: Firecrawl API key for web scraping (data pipeline only)
 
-### Customizable Parameters
-- Chunk size and overlap (`qdrant-ingestion.py`)
-- Vector search threshold and top-K
-- Classification prompt engineering
-- Response generation templates
+### Data Pipeline Configuration
+- **Scraping Parameters**: Modify scrape.py for custom URLs and crawl limits
+- **Chunk Configuration**: Adjust size and overlap in qdrant_ingestion.py (default: 1200 tokens, 200 overlap)
+- **Vector Search**: Modify threshold and top-K in app/rag_pipeline.py (default: 0.3 threshold, 5 chunks)
+
+### Application Customization
+- **Classification Prompts**: Edit prompts in app/rag_pipeline.py for custom categorization
+- **Response Templates**: Modify RAG and routing responses in app/main.py
+- **UI Styling**: Update custom CSS in app/main.py for branding
 
 ## 📊 Performance Metrics
 
+### Data Pipeline Efficiency
+- **Firecrawl Scraping**: Automated content extraction with metadata preservation
+- **MongoDB Storage**: Reliable document persistence with backup capabilities
+- **Vector Ingestion**: Efficient batch processing of embeddings to Qdrant
+
 ### Response Quality Measures
-- **Source Attribution**: All RAG responses include documentation URLs
-- **Relevance Scoring**: Vector similarity scores for retrieved chunks
-- **Classification Consistency**: Structured output with validation
+- **Source Attribution**: All RAG responses include original documentation URLs
+- **Relevance Scoring**: Vector similarity scores for retrieved chunks (threshold 0.3)
+- **Classification Consistency**: Structured JSON output with validation
+- **Context Quality**: 5 most relevant chunks retrieved for comprehensive answers
 
 ### Scalability Features
-- **Batch Processing**: Efficient embedding generation
-- **Rate Limiting**: API-friendly request handling
-- **Error Handling**: Graceful fallbacks and retries
+- **Persistent Storage**: MongoDB enables data reprocessing without re-scraping
+- **Vector Database**: Qdrant Cloud provides fast similarity search at scale
+- **Rate Limiting**: API-friendly request handling for OpenAI and Firecrawl
+- **Error Handling**: Graceful fallbacks and retries across the pipeline
 
 ## 🚨 Troubleshooting
 
-### Common Issues
+### Data Pipeline Issues
 
-**1. API Rate Limits**
-- Implement exponential backoff
-- Reduce batch sizes in `qdrant-ingestion.py`
+**1. Firecrawl Scraping Problems**
+- Verify Firecrawl API key in environment variables
+- Check rate limits and adjust scraping delays in scrape.py
+- Monitor MongoDB connection for storage issues
 
-**2. Vector Search Issues**
-- Verify Qdrant collection exists
-- Check embedding dimensions match (384)
-- Validate API credentials
+**2. MongoDB Storage Issues**
+- Validate MongoDB Atlas connection string
+- Check database and collection permissions
+- Verify network access to MongoDB cluster
 
-**3. Classification Errors**
-- Review prompt templates in `rag_pipeline.py`
-- Check JSON parsing logic
-- Verify OpenAI API access
+**3. Vector Database Problems**
+- Verify Qdrant Cloud instance is accessible
+- Check embedding dimensions match (384 for BGE-small)
+- Validate collection exists and has correct configuration
+
+### Application Issues
+
+**4. Streamlit Deployment**
+- Ensure all environment variables are set in app/.env
+- Check that app/requirements.txt includes all dependencies
+- Verify OpenAI API key has sufficient credits
+
+**5. Classification Errors**
+- Review prompt templates in app/rag_pipeline.py
+- Check JSON parsing logic for malformed responses
+- Monitor OpenAI API rate limits
 
 ### Debugging Tips
-- Enable verbose logging in Python scripts
-- Check Streamlit console output for errors
-- Validate environment variable loading
-- Monitor API rate limits and responses
+- Check Streamlit logs for detailed error messages
+- Validate environment variable loading in app directory
+- Test individual pipeline components (MongoDB, Qdrant, OpenAI)
+- Monitor API usage and rate limits across all services
 
 ## 🎯 Future Enhancements
 
@@ -228,17 +307,26 @@ The system analyzes tickets using structured prompts to generate:
 
 ## 📝 Development Notes
 
+### Project Structure Philosophy
+- **Separation of Concerns**: Data pipeline (root) vs application deployment (app/)
+- **Environment Isolation**: Each tier has its own requirements and configuration
+- **Data Persistence**: MongoDB enables reprocessing without re-scraping expensive operations
+- **Deployment Ready**: app/ folder contains everything needed for Streamlit Cloud deployment
+
 ### Architecture Decisions
-1. **Unified Python Stack**: Streamlit for both UI and AI pipeline for simplicity
-2. **Vector Database**: Qdrant chosen for performance and cloud availability
-3. **Embedding Strategy**: FastEmbed for efficient local embeddings
-4. **Response Generation**: GPT-4o for high-quality responses
+1. **Complete Data Pipeline**: Firecrawl → MongoDB → Qdrant → Streamlit for end-to-end automation
+2. **Unified Python Stack**: Streamlit for both UI and AI pipeline for simplicity
+3. **Vector Database**: Qdrant Cloud chosen for performance and scalability
+4. **Embedding Strategy**: FastEmbed BGE-small for efficient 384-dim embeddings
+5. **Response Generation**: OpenAI GPT-4o for high-quality responses
+6. **Data Persistence**: MongoDB for reliable document storage and backup
 
 ### Trade-offs
 - **Simplicity vs Scale**: Streamlit for rapid development over complex web frameworks
-- **Cost vs Performance**: OpenAI API for quality vs local models for cost
+- **Cost vs Performance**: OpenAI GPT-4o for quality vs local models for cost
 - **Storage vs Compute**: Pre-computed embeddings vs real-time generation
-- **Complexity vs Maintainability**: Single codebase with clear separation of concerns
+- **Flexibility vs Complexity**: Multi-stage pipeline (scrape → store → vectorize → deploy)
+- **Data Persistence**: MongoDB storage ensures data availability and reprocessing capability
 
 ## 🤝 Contributing
 
