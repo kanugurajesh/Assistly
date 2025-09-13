@@ -1,64 +1,62 @@
 import os
 import argparse
-from typing import List, Dict
+from typing import List, Dict, Optional
 from dotenv import load_dotenv
-from pymongo import MongoClient
 from qdrant_client import QdrantClient
 from qdrant_client.models import Distance, VectorParams, PointStruct
 from langchain.text_splitter import RecursiveCharacterTextSplitter
 from fastembed import TextEmbedding
 import time
 from datetime import datetime
+from utils import get_mongodb_collection, close_mongodb_client
 
 load_dotenv()
 
 MONGODB_DB = "Cluster0"
 MONGODB_COLLECTION = "atlan_developer_docs"
 
-# Initialize clients
-mongo_client = MongoClient(os.getenv("MONGODB_URI"))
-db = mongo_client.get_database(MONGODB_DB)
-collection = db.get_collection(MONGODB_COLLECTION)  # Default collection, can be overridden by args
-
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),
     api_key=os.getenv("QDRANT_API_KEY"),
 )
 
-# Configuration
+# Configuration constants
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model
 COLLECTION_NAME = "atlan_docs"
 VECTOR_SIZE = 384  # BGE small model vector size
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 200
+BATCH_SIZE = 50  # Embedding and ingestion batch size
+SCROLL_LIMIT = 10000  # Qdrant scroll limit for existing IDs
+PROGRESS_INTERVAL = 10  # Print progress every N documents
 
 # Initialize FastEmbed model
 embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
 
-def create_qdrant_collection(recreate=False):
-    """Create or check Qdrant collection for Atlan docs"""
+def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bool:
+    """Create or check Qdrant collection"""
     try:
         # Check if collection exists
         collections = qdrant_client.get_collections()
-        collection_exists = any(col.name == COLLECTION_NAME for col in collections.collections)
-        
+        collection_exists = any(col.name == collection_name for col in collections.collections)
+
         if collection_exists and recreate:
             # Delete existing collection if recreate is True
-            qdrant_client.delete_collection(collection_name=COLLECTION_NAME)
-            print(f"Deleted existing collection: {COLLECTION_NAME}")
+            qdrant_client.delete_collection(collection_name=collection_name)
+            print(f"Deleted existing collection: {collection_name}")
             collection_exists = False
         elif collection_exists:
-            print(f"Collection '{COLLECTION_NAME}' already exists")
+            print(f"Collection '{collection_name}' already exists")
             return True
-        
+
         if not collection_exists:
             # Create new collection
             qdrant_client.create_collection(
-                collection_name=COLLECTION_NAME,
+                collection_name=collection_name,
                 vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
-            print(f"Created collection: {COLLECTION_NAME}")
-        
+            print(f"Created collection: {collection_name}")
+
         return True
     except Exception as e:
         print(f"Error creating collection: {e}")
@@ -100,19 +98,18 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         print("Note: First run may take time to download the model...")
         
         # Process in smaller batches for progress tracking and memory management
-        batch_size = 50  # Reduced for better memory management
         all_embeddings = []
         start_time = time.time()
         
-        for i in range(0, len(texts), batch_size):
+        for i in range(0, len(texts), BATCH_SIZE):
             batch_start_time = time.time()
-            batch_texts = texts[i:i + batch_size]
+            batch_texts = texts[i:i + BATCH_SIZE]
             
             try:
                 batch_embeddings = list(embedding_model.embed(batch_texts))
                 all_embeddings.extend(batch_embeddings)
                 
-                progress = min(i + batch_size, len(texts))
+                progress = min(i + BATCH_SIZE, len(texts))
                 batch_time = time.time() - batch_start_time
                 elapsed_time = time.time() - start_time
                 
@@ -122,7 +119,7 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
                     print(f"Progress: {progress}/{len(texts)} embeddings ({progress/len(texts)*100:.1f}%) | Batch time: {batch_time:.2f}s | ETA: {eta:.1f}s")
                 
             except Exception as batch_error:
-                print(f"Error processing batch {i//batch_size + 1}: {batch_error}")
+                print(f"Error processing batch {i//BATCH_SIZE + 1}: {batch_error}")
                 # Add zero vectors for failed batch
                 fallback_embeddings = [[0.0] * VECTOR_SIZE for _ in batch_texts]
                 all_embeddings.extend(fallback_embeddings)
@@ -137,49 +134,49 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         print(f"Using zero vectors as fallback for {len(texts)} texts")
         return [[0.0] * VECTOR_SIZE for _ in texts]
 
-def get_existing_mongodb_ids():
+def get_existing_mongodb_ids(collection_name: str) -> set:
     """Get MongoDB IDs that are already in Qdrant to avoid duplicates"""
     try:
         # Get all points from Qdrant with mongodb_id
         scroll_result = qdrant_client.scroll(
-            collection_name=COLLECTION_NAME,
-            limit=10000,  # Adjust based on your needs
+            collection_name=collection_name,
+            limit=SCROLL_LIMIT,
             with_payload=["mongodb_id"]
         )
-        
+
         existing_ids = set()
         for point in scroll_result[0]:
             mongodb_id = point.payload.get("mongodb_id")
             if mongodb_id:
                 existing_ids.add(mongodb_id)
-        
+
         return existing_ids
     except Exception as e:
         print(f"Warning: Could not check existing vectors: {e}")
         return set()
 
-def process_mongodb_documents(source_url_filter=None, incremental=True):
+def process_mongodb_documents(source_url_filter: Optional[str] = None, incremental: bool = True, qdrant_collection_name: str = "atlan_docs") -> List[Dict]:
     """Load documents from MongoDB and process them with incremental support"""
     print("Loading documents from MongoDB...")
-    
+
     # Build query filter
     query_filter = {}
     if source_url_filter:
         query_filter["source_url"] = source_url_filter
         print(f"Filtering by source URL: {source_url_filter}")
-    
+
     # Get all documents from scraped_pages collection
     documents = list(collection.find(query_filter))
     print(f"Found {len(documents)} documents in MongoDB")
-    
+
     if not documents:
         print("No documents found in MongoDB. Please run scrape.py first.")
         return []
-    
+
     # Check for existing vectors if incremental is enabled
     existing_mongodb_ids = set()
     if incremental:
-        existing_mongodb_ids = get_existing_mongodb_ids()
+        existing_mongodb_ids = get_existing_mongodb_ids(qdrant_collection_name)
         print(f"Found {len(existing_mongodb_ids)} existing vectors in Qdrant")
     
     all_chunks = []
@@ -212,7 +209,7 @@ def process_mongodb_documents(source_url_filter=None, incremental=True):
             
             all_chunks.extend(chunks)
             
-            if (doc_idx + 1) % 10 == 0 or doc_idx == len(documents) - 1:
+            if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(documents) - 1:
                 print(f"Processed {doc_idx + 1}/{len(documents)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
             
         except Exception as e:
@@ -223,29 +220,29 @@ def process_mongodb_documents(source_url_filter=None, incremental=True):
     print(f"Skipped existing documents: {skipped_count}")
     return all_chunks
 
-def ingest_to_qdrant(chunks: List[Dict]):
+def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
     """Ingest chunks with embeddings to Qdrant with improved error handling"""
     if not chunks:
         print("No chunks to ingest")
         return
-    
+
     print(f"Generating embeddings for {len(chunks)} chunks...")
-    
+
     # Extract texts for embedding generation
     texts = [chunk["text"] for chunk in chunks]
-    
+
     # Generate embeddings in batches
     embeddings = generate_embeddings(texts)
-    
+
     if len(embeddings) != len(chunks):
         print(f"Error: Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})")
         return
-    
+
     print("Creating Qdrant points...")
-    
+
     # Get the next available ID in Qdrant
     try:
-        info = qdrant_client.get_collection(COLLECTION_NAME)
+        info = qdrant_client.get_collection(collection_name)
         next_id = info.points_count
     except:
         next_id = 0
@@ -270,18 +267,17 @@ def ingest_to_qdrant(chunks: List[Dict]):
         points.append(point)
     
     # Upload to Qdrant in batches with error handling
-    batch_size = 50  # Reduced batch size for better reliability
     successful_batches = 0
     failed_batches = 0
     
-    for i in range(0, len(points), batch_size):
-        batch = points[i:i + batch_size]
-        batch_num = i // batch_size + 1
-        total_batches = (len(points) - 1) // batch_size + 1
+    for i in range(0, len(points), BATCH_SIZE):
+        batch = points[i:i + BATCH_SIZE]
+        batch_num = i // BATCH_SIZE + 1
+        total_batches = (len(points) - 1) // BATCH_SIZE + 1
         
         try:
             qdrant_client.upsert(
-                collection_name=COLLECTION_NAME,
+                collection_name=collection_name,
                 points=batch
             )
             successful_batches += 1
@@ -295,40 +291,45 @@ def ingest_to_qdrant(chunks: List[Dict]):
     print(f"Total batches: {successful_batches + failed_batches}")
     print(f"Successful batches: {successful_batches}")
     print(f"Failed batches: {failed_batches}")
-    print(f"Estimated successful points: {successful_batches * batch_size}")
+    print(f"Estimated successful points: {successful_batches * BATCH_SIZE}")
 
-def main():
+def main() -> None:
     """Main ingestion pipeline"""
-    parser = argparse.ArgumentParser(description='Ingest MongoDB documents to Qdrant vector database')
-    parser.add_argument('--source-url', help='Filter by source URL (e.g., https://docs.atlan.com)')
-    parser.add_argument('--recreate', action='store_true', help='Recreate Qdrant collection (deletes existing data)')
-    parser.add_argument('--no-incremental', action='store_true', help='Disable incremental processing (process all documents)')
-    parser.add_argument('--collection', default='atlan_developer_docs', help='MongoDB collection name (default: atlan_developer_docs)')
-    
+    parser = argparse.ArgumentParser(description="Ingest MongoDB documents to Qdrant vector database")
+    parser.add_argument("--source-url", help="Filter by source URL (e.g., https://docs.atlan.com)")
+    parser.add_argument("--recreate", action="store_true", help="Recreate Qdrant collection (deletes existing data)")
+    parser.add_argument("--no-incremental", action="store_true", help="Disable incremental processing (process all documents)")
+    parser.add_argument("--collection", default="atlan_developer_docs", help="MongoDB collection name (default: atlan_developer_docs)")
+    parser.add_argument("--qdrant-collection", default="atlan_docs", help="Qdrant collection name (default: atlan_docs)")
+
     args = parser.parse_args()
     
     print("🚀 Starting MongoDB to Qdrant ingestion pipeline...")
     if args.source_url:
         print(f"🌐 Source URL filter: {args.source_url}")
     print(f"🗂️ MongoDB collection: {args.collection}")
+    print(f"🗃️ Qdrant collection: {args.qdrant_collection}")
     print(f"🔄 Incremental processing: {not args.no_incremental}")
     print(f"♾️ Recreate collection: {args.recreate}")
     print("=" * 50)
     
-    # Use specified collection
-    global collection
-    collection = db.get_collection(args.collection)
+    # Get MongoDB connection with specified collection
+    mongo_client, db, collection = get_mongodb_collection(
+        database_name=MONGODB_DB,
+        collection_name=args.collection
+    )
     
     # Step 1: Create Qdrant collection
-    if not create_qdrant_collection(recreate=args.recreate):
+    if not create_qdrant_collection(collection_name=args.qdrant_collection, recreate=args.recreate):
         print("Failed to create Qdrant collection. Exiting.")
         return
-    
+
     # Step 2: Process MongoDB documents
     start_time = time.time()
     chunks = process_mongodb_documents(
         source_url_filter=args.source_url,
-        incremental=not args.no_incremental
+        incremental=not args.no_incremental,
+        qdrant_collection_name=args.qdrant_collection
     )
     
     if not chunks:
@@ -341,20 +342,20 @@ def main():
     # Step 3: Ingest to Qdrant
     print(f"🚀 Starting vector ingestion for {len(chunks)} chunks...")
     start_time = time.time()
-    ingest_to_qdrant(chunks)
+    ingest_to_qdrant(chunks, args.qdrant_collection)
     ingestion_time = time.time() - start_time
     print(f"⏱️ Vector ingestion completed in {ingestion_time:.2f} seconds")
-    
+
     # Step 4: Verify ingestion
-    info = qdrant_client.get_collection(COLLECTION_NAME)
+    info = qdrant_client.get_collection(args.qdrant_collection)
     print(f"\n✅ Ingestion complete!")
-    print(f"Collection: {COLLECTION_NAME}")
+    print(f"Collection: {args.qdrant_collection}")
     print(f"Total points: {info.points_count}")
     print(f"Vector size: {info.config.params.vectors.size}")
     print(f"Total processing time: {(processing_time + ingestion_time):.2f} seconds")
     
     # Close connections
-    mongo_client.close()
+    close_mongodb_client(mongo_client)
 
 if __name__ == "__main__":
     main()
