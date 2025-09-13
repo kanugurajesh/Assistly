@@ -20,20 +20,20 @@ An AI-powered customer support system that automatically classifies tickets and 
 
 ### Complete Data Pipeline Flow
 ```
-┌─────────────┐    ┌─────────────┐    ┌─────────────┐    ┌─────────────┐
-│ Firecrawl   │    │  MongoDB    │    │   Qdrant    │    │ Streamlit   │
+┌─────────────┐    ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
+│ Firecrawl   │    │  MongoDB    │     │   Qdrant    │     │ Streamlit   │
 │ Web Scraper │───▶│ Document    │───▶│ Vector      │───▶│ Web App     │
-│             │    │ Storage     │    │ Database    │    │             │
-├─────────────┤    ├─────────────┤    ├─────────────┤    ├─────────────┤
-│ • docs      │    │ • Raw HTML  │    │ • Embeddings│    │ • Dashboard │
-│   atlan.com │    │ • Metadata  │    │ • FastEmbed │    │ • Chat UI   │
-│ • developer │    │ • Backup    │    │ • BGE-small │    │ • Analytics │
-│   atlan.com │    │   Files     │    │ • Search    │    │ • Real-time │
-└─────────────┘    └─────────────┘    └─────────────┘    └─────────────┘
-       │                  │                  │                  │
-   scrape.py         (Persistent         qdrant_           main.py
-   (Data Prep)        Storage)         ingestion.py      (Deployment)
-                                       (Vector Prep)
+│             │    │ Storage     │     │ Database    │     │             │
+├─────────────┤    ├─────────────┤     ├─────────────┤     ├─────────────┤
+│ • docs      │    │ • Raw HTML  │     │ • Embeddings│     │ • Dashboard │
+│   atlan.com │    │ • Metadata  │     │ • FastEmbed │     │ • Chat UI   │
+│ • developer │    │ • Backup    │     │ • BGE-small │     │ • Analytics │
+│   atlan.com │    │   Files     │     │ • Search    │     │ • Real-time │
+└─────────────┘    └─────────────┘     └─────────────┘     └─────────────┘
+       │                  │                   │                   │
+   scrape.py         (Persistent           qdrant_             main.py
+   (Data Prep)        Storage)           ingestion.py       ( Deployment)
+                                         (Vector Prep)
 
                     ┌─────────────────────────────────────┐
                     │          OpenAI GPT-4o             │
@@ -98,8 +98,8 @@ An AI-powered customer support system that automatically classifies tickets and 
 ### 1. Clone and Setup Environment
 
 ```bash
-git clone <repository-url>
-cd crawling
+git clone https://github.com/kanugurajesh/Assistly
+cd Assistly
 ```
 
 **Project Structure Overview:**
