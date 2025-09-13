@@ -1,10 +1,15 @@
 import os
 import json
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 from openai import OpenAI
+import sys
+
+# Add parent directory to path to import memory_manager
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from memory_manager import get_memory_manager
 
 load_dotenv()
 
@@ -122,26 +127,36 @@ class AtlanRAG:
         
         return sources
     
-    def generate_rag_response(self, query: str, context_docs: List[Dict]) -> str:
-        """Generate response using retrieved context"""
+    def generate_rag_response(self, query: str, context_docs: List[Dict], session_id: Optional[str] = None) -> str:
+        """Generate response using retrieved context with conversation memory"""
         if not context_docs:
             return "I couldn't find relevant information in the Atlan documentation to answer your question."
-        
+
         # Prepare context from retrieved documents
         context_parts = []
         for i, doc in enumerate(context_docs, 1):
             context_parts.append(f"Context {i}:\nSource: {doc['title']}\nContent: {doc['text']}\n")
-        
+
         context = "\n".join(context_parts)
-        
-        prompt = f"""You are a helpful assistant that answers questions about Atlan based on the provided documentation context. 
+
+        # Get conversation history if session_id is provided
+        conversation_context = ""
+        if session_id:
+            memory_manager = get_memory_manager()
+            conversation_history = memory_manager.get_conversation_context(session_id, include_last_n=5)
+            if conversation_history:
+                conversation_context = f"\nPrevious Conversation:\n{conversation_history}\n"
+
+        prompt = f"""You are a helpful assistant that answers questions about Atlan based on the provided documentation context.
 
         Use the following context to answer the user's question. Be specific and accurate. If the context doesn't contain enough information to fully answer the question, say so clearly.
 
-        Context:
+        If there's previous conversation history, consider it for context but focus primarily on the current question and the documentation context.{conversation_context}
+
+        Documentation Context:
         {context}
 
-        Question: {query}
+        Current Question: {query}
 
         Answer:"""
 
@@ -166,17 +181,17 @@ class AtlanRAG:
             print(f"Unexpected error generating response: {e}")
             return "I encountered an unexpected error while generating a response. Please try again."
     
-    def answer_question(self, query: str) -> Dict[str, Any]:
-        """Main RAG pipeline function"""
+    def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Main RAG pipeline function with conversation memory"""
         # Search for relevant documents
         search_results = self.search_documents(query)
-        
+
         # Extract unique sources
         sources = self.extract_unique_sources(search_results)
-        
-        # Generate response
-        answer = self.generate_rag_response(query, search_results)
-        
+
+        # Generate response with conversation context
+        answer = self.generate_rag_response(query, search_results, session_id)
+
         return {
             "answer": answer,
             "sources": sources,
@@ -305,12 +320,13 @@ def test_classification() -> None:
 
 # Integrated Pipeline Class for Streamlit
 class RAGPipeline:
-    """Integrated pipeline combining classification and RAG functionality"""
+    """Integrated pipeline combining classification and RAG functionality with conversation memory"""
 
     def __init__(self) -> None:
         self.rag = AtlanRAG()
         self.classifier = TicketClassifier()
-    
+        self.memory_manager = get_memory_manager()
+
     def classify_ticket(self, content: str) -> Dict[str, Any]:
         """Classify a ticket from combined content (subject + body)"""
         # Split content into subject and body if formatted as "Subject: ...\n\n..."
@@ -322,12 +338,33 @@ class RAGPipeline:
             # Treat entire content as body with empty subject
             subject = ""
             body = content
-        
+
         return self.classifier.classify_ticket(subject, body)
-    
-    def generate_rag_response(self, query: str) -> Dict[str, Any]:
-        """Generate RAG response for a query"""
-        return self.rag.answer_question(query)
+
+    def generate_rag_response(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Generate RAG response for a query with conversation memory"""
+        return self.rag.answer_question(query, session_id)
+
+    def add_conversation_turn(self, session_id: str, user_message: str, ai_response: str) -> None:
+        """Add a complete conversation turn to memory"""
+        self.memory_manager.add_user_message(session_id, user_message)
+        self.memory_manager.add_ai_message(session_id, ai_response)
+
+    def get_or_create_session(self, session_id: Optional[str] = None) -> str:
+        """Get or create a conversation session"""
+        return self.memory_manager.get_or_create_session(session_id)
+
+    def clear_conversation(self, session_id: str) -> bool:
+        """Clear conversation history for a session"""
+        return self.memory_manager.clear_session(session_id)
+
+    def get_conversation_history(self, session_id: str) -> str:
+        """Get formatted conversation history"""
+        return self.memory_manager.get_conversation_context(session_id)
+
+    def get_memory_stats(self) -> Dict:
+        """Get memory usage statistics"""
+        return self.memory_manager.get_memory_stats()
 
 if __name__ == "__main__":
     print("Testing RAG Pipeline...")

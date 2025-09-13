@@ -88,10 +88,15 @@ if 'messages' not in st.session_state:
     st.session_state.messages = []
 if 'classified_tickets' not in st.session_state:
     st.session_state.classified_tickets = None
+if 'conversation_session_id' not in st.session_state:
+    st.session_state.conversation_session_id = None
 if 'rag_pipeline' not in st.session_state:
     with st.spinner("Initializing AI pipeline..."):
         try:
             st.session_state.rag_pipeline = RAGPipeline()
+            # Initialize conversation session
+            if st.session_state.rag_pipeline:
+                st.session_state.conversation_session_id = st.session_state.rag_pipeline.get_or_create_session()
             st.success("AI pipeline initialized successfully!")
             time.sleep(1)  # Brief pause to show success message
         except Exception as e:
@@ -220,18 +225,20 @@ def get_sentiment_color(sentiment):
     return colors.get(sentiment, '#6b7280')
 
 def process_sample_question(sample_text):
-    """Process a sample question and add both user message and AI response"""
+    """Process a sample question and add both user message and AI response with memory"""
     st.session_state.messages.append({"role": "user", "content": sample_text})
 
     if st.session_state.rag_pipeline is not None:
         with st.spinner("Processing your question..."):
             try:
+                session_id = st.session_state.conversation_session_id
+
                 classification = st.session_state.rag_pipeline.classify_ticket(sample_text)
                 rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
                 should_use_rag = any(topic in classification.get('topic_tags', []) for topic in rag_topics)
 
                 if should_use_rag:
-                    response_data = st.session_state.rag_pipeline.generate_rag_response(sample_text)
+                    response_data = st.session_state.rag_pipeline.generate_rag_response(sample_text, session_id)
                     response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                     sources = response_data.get('sources', [])
                     response_type = 'rag'
@@ -240,6 +247,10 @@ def process_sample_question(sample_text):
                     response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
                     sources = []
                     response_type = 'routing'
+
+                # Add conversation to memory
+                if session_id:
+                    st.session_state.rag_pipeline.add_conversation_turn(session_id, sample_text, response_content)
 
                 assistant_message = {
                     "role": "assistant",
@@ -253,14 +264,43 @@ def process_sample_question(sample_text):
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
+                error_msg = "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
+                    "content": error_msg
                 })
     st.rerun()
 
 # Sidebar navigation
 st.sidebar.title("🤖 Atlan Support Copilot")
+
+# Add conversation management section in sidebar
+if st.session_state.rag_pipeline and st.session_state.conversation_session_id:
+    with st.sidebar.expander("💬 Conversation Management", expanded=False):
+        # Memory stats
+        try:
+            memory_stats = st.session_state.rag_pipeline.get_memory_stats()
+            st.write(f"**Active Sessions:** {memory_stats.get('active_sessions', 0)}")
+            st.write(f"**Total Messages:** {memory_stats.get('total_messages', 0)}")
+
+            # Current session info
+            conversation_history = st.session_state.rag_pipeline.get_conversation_history(st.session_state.conversation_session_id)
+            if conversation_history:
+                st.write("**Current Conversation:**")
+                st.write(f"{len(conversation_history.split('User:')) - 1} exchanges")
+            else:
+                st.write("**No conversation history**")
+        except Exception as e:
+            st.write("Memory stats unavailable")
+
+        # Clear conversation button
+        if st.button("🗑️ Clear Conversation", help="Clear current conversation history"):
+            if st.session_state.rag_pipeline and st.session_state.conversation_session_id:
+                success = st.session_state.rag_pipeline.clear_conversation(st.session_state.conversation_session_id)
+                if success:
+                    st.session_state.messages = []  # Clear UI messages too
+                    st.success("Conversation cleared!")
+                    st.rerun()
 
 # Handle query params for navigation
 query_params = st.query_params
@@ -552,28 +592,33 @@ elif page == "💬 Chat Agent":
         if st.session_state.rag_pipeline is None:
             st.error("RAG pipeline not initialized. Please check your configuration.")
         else:
-            # Add user message
+            # Format the user message
+            user_message = f"**Subject:** {subject}\n\n{message}" if subject else message
+
+            # Add user message to UI
             st.session_state.messages.append({
                 "role": "user",
-                "content": f"**Subject:** {subject}\n\n{message}" if subject else message
+                "content": user_message
             })
-            
+
             # Process with RAG pipeline
             with st.spinner("Analyzing and generating response..."):
                 try:
+                    session_id = st.session_state.conversation_session_id
+
                     # Format input for pipeline
                     input_text = f"Subject: {subject}\n\n{message}" if subject else message
-                    
+
                     # Get classification
                     classification = st.session_state.rag_pipeline.classify_ticket(input_text)
-                    
+
                     # Determine response type and generate response
                     rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
                     should_use_rag = any(topic in classification.get('topic_tags', []) for topic in rag_topics)
-                    
+
                     if should_use_rag:
-                        # Generate RAG response
-                        response_data = st.session_state.rag_pipeline.generate_rag_response(input_text)
+                        # Generate RAG response with conversation memory
+                        response_data = st.session_state.rag_pipeline.generate_rag_response(input_text, session_id)
                         response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                         sources = response_data.get('sources', [])
                         response_type = 'rag'
@@ -583,7 +628,11 @@ elif page == "💬 Chat Agent":
                         response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
                         sources = []
                         response_type = 'routing'
-                    
+
+                    # Add conversation to memory
+                    if session_id:
+                        st.session_state.rag_pipeline.add_conversation_turn(session_id, input_text, response_content)
+
                     # Add assistant response
                     assistant_message = {
                         "role": "assistant",
@@ -591,19 +640,20 @@ elif page == "💬 Chat Agent":
                         "classification": classification,
                         "response_type": response_type
                     }
-                    
+
                     if sources:
                         assistant_message["sources"] = sources
-                    
+
                     st.session_state.messages.append(assistant_message)
-                    
+
                 except Exception as e:
                     st.error(f"Error processing message: {str(e)}")
+                    error_msg = "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
+                        "content": error_msg
                     })
-            
+
             # Rerun to update the chat display
             st.rerun()
     
