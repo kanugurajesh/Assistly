@@ -7,6 +7,7 @@ An AI-powered customer support system that automatically classifies tickets and 
 ### Core Functionality
 - **Bulk Ticket Classification**: Automatically classify 30+ sample tickets with AI-powered categorization
 - **Interactive AI Agent**: Real-time chat interface for new ticket submission and response
+- **Conversational Memory**: Context-aware conversations using LangChain ChatMessageHistory with in-memory storage
 - **Smart Classification**: Topic tags, sentiment analysis, and priority assignment
 - **RAG Responses**: Intelligent answers powered by Atlan's documentation
 - **Source Citations**: All responses include links to relevant documentation
@@ -55,7 +56,7 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **OpenAI GPT-4o**: LLM for classification and response generation
 - **FastEmbed BAAI/bge-small-en-v1.5**: Vector embeddings for semantic search (384 dimensions)
 - **Qdrant**: Vector database for RAG retrieval
-- **LangChain**: Text processing and chunking
+- **LangChain**: Text processing, chunking, and conversational memory management
 
 ### Application
 - **Streamlit**: Interactive web application framework
@@ -111,6 +112,7 @@ crawling/
 │   ├── requirements.txt   # App dependencies
 │   ├── .env.example       # Environment template
 │   └── sample_tickets.json
+├── memory_manager.py      # Conversational memory management
 ├── scrape.py              # Firecrawl web scraping
 ├── qdrant_ingestion.py    # Vector database ingestion
 ├── requirements.txt       # Data pipeline dependencies
@@ -325,7 +327,47 @@ The application will open automatically in your browser at `http://localhost:850
 2. Enter your question in the chat interface
 3. Toggle "Show internal analysis" to view classification details
 4. Get intelligent responses with source citations
-5. Try sample questions or submit your own tickets
+5. Experience context-aware conversations with memory
+6. Use the "Conversation Management" sidebar to view memory stats or clear history
+7. Try sample questions or submit your own tickets
+
+## 💬 Conversational Memory Features
+
+### Context-Aware Conversations
+The system maintains conversation history to provide context-aware responses:
+- **Follow-up Questions**: Ask related questions without repeating context
+- **Reference Previous Answers**: The AI remembers what it told you earlier
+- **Natural Flow**: Conversations feel more natural and coherent
+
+### Memory Management
+**Conversation Management Sidebar:**
+- **Memory Statistics**: View active sessions and total message count
+- **Current Session Info**: See number of exchanges in current conversation
+- **Clear History**: Manually reset conversation memory when needed
+
+**Automatic Features:**
+- **Session Isolation**: Each browser session has its own conversation memory
+- **Message Limits**: Automatically trims to last 20 messages to prevent token overflow
+- **Auto Expiry**: Sessions expire after 60 minutes of inactivity
+- **Smart Trimming**: Removes oldest messages while preserving conversation pairs
+
+### Example Conversation Flow
+```
+User: "How do I connect Snowflake to Atlan?"
+AI: "To connect Snowflake to Atlan, you need to configure..." [provides detailed steps]
+
+User: "What permissions do I need for this?"
+AI: "For the Snowflake connection we discussed, you'll need..." [remembers previous context]
+
+User: "Are there any security considerations?"
+AI: "Yes, for your Snowflake-Atlan integration, consider..." [builds on conversation]
+```
+
+### Technical Implementation
+- **Backend**: LangChain's `InMemoryChatMessageHistory` for pure RAM storage
+- **No Database**: Conversations stored in Python dictionaries (no external dependencies)
+- **Session Management**: UUID-based session identification with Streamlit session state
+- **Context Integration**: Previous conversation included in RAG prompts for better responses
 
 ## 🧠 AI Pipeline Details
 
@@ -336,8 +378,9 @@ The system analyzes tickets using structured prompts to generate:
 3. **Priority**: Business impact assessment
 
 ### RAG Response Logic
-- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using documentation
+- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using documentation with conversation context
 - **Routing Topics**: Connector, Lineage, Glossary, Sensitive data → Route to appropriate teams
+- **Memory Integration**: Previous conversation history included in prompts for context-aware responses
 
 ### Chunking Strategy
 - **Chunk Size**: 1200 tokens with 200 token overlap
@@ -348,6 +391,17 @@ The system analyzes tickets using structured prompts to generate:
 - **Embedding Model**: BAAI/bge-small-en-v1.5 (384 dimensions)
 - **Search Strategy**: Cosine similarity with score threshold 0.3
 - **Top-K Retrieval**: 5 most relevant chunks
+
+### Conversational Memory System
+- **Memory Backend**: LangChain's `InMemoryChatMessageHistory` for pure RAM storage
+- **Session Management**: Unique session IDs for each browser session with automatic timeout
+- **Context Window**: Last 5 message exchanges included in RAG prompts for continuity
+- **Memory Features**:
+  - Automatic message trimming (max 20 messages per session)
+  - Session cleanup and expiration (60-minute timeout)
+  - Manual conversation clearing via UI
+  - Memory usage statistics and monitoring
+- **No External Dependencies**: Pure in-memory storage without databases
 
 ## 🔧 Configuration Options
 
@@ -479,7 +533,7 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 ## 🎯 Future Enhancements
 
 ### Short-term Improvements
-- Add conversation history and context
+- ✅ **Conversational Memory**: Context-aware conversations with LangChain ChatMessageHistory
 - Implement user feedback collection
 - Enhanced error handling and validation
 - Performance optimization for large datasets
