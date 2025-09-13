@@ -1,5 +1,4 @@
 import streamlit as st
-import sys
 import os
 import json
 import time
@@ -215,6 +214,46 @@ def get_sentiment_color(sentiment):
         'Neutral': '#6b7280'
     }
     return colors.get(sentiment, '#6b7280')
+
+def process_sample_question(sample_text):
+    """Process a sample question and add both user message and AI response"""
+    st.session_state.messages.append({"role": "user", "content": sample_text})
+
+    if st.session_state.rag_pipeline is not None:
+        with st.spinner("Processing your question..."):
+            try:
+                classification = st.session_state.rag_pipeline.classify_ticket(sample_text)
+                rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
+                should_use_rag = any(topic in classification.get('topic_tags', []) for topic in rag_topics)
+
+                if should_use_rag:
+                    response_data = st.session_state.rag_pipeline.generate_rag_response(sample_text)
+                    response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
+                    sources = response_data.get('sources', [])
+                    response_type = 'rag'
+                else:
+                    primary_topic = classification.get('topic_tags', ['Unknown'])[0] if classification.get('topic_tags') else 'Unknown'
+                    response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
+                    sources = []
+                    response_type = 'routing'
+
+                assistant_message = {
+                    "role": "assistant",
+                    "content": response_content,
+                    "classification": classification,
+                    "response_type": response_type
+                }
+
+                if sources:
+                    assistant_message["sources"] = sources
+
+                st.session_state.messages.append(assistant_message)
+            except Exception as e:
+                st.session_state.messages.append({
+                    "role": "assistant",
+                    "content": "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
+                })
+    st.rerun()
 
 # Sidebar navigation
 st.sidebar.title("🤖 Atlan Support Copilot")
@@ -571,29 +610,17 @@ elif page == "💬 Chat Agent":
     
     with col1:
         if st.button("How do I connect Snowflake to Atlan? What permissions are required?", key="sample1"):
-            # Add sample message directly to conversation
-            sample_text = "How do I connect Snowflake to Atlan? What permissions are required?"
-            st.session_state.messages.append({"role": "user", "content": sample_text})
-            st.rerun()
-        
+            process_sample_question("How do I connect Snowflake to Atlan? What permissions are required?")
+
         if st.button("What is data lineage and how does Atlan track it automatically?", key="sample2"):
-            # Add sample message directly to conversation
-            sample_text = "What is data lineage and how does Atlan track it automatically?"
-            st.session_state.messages.append({"role": "user", "content": sample_text})
-            st.rerun()
-    
+            process_sample_question("What is data lineage and how does Atlan track it automatically?")
+
     with col2:
         if st.button("How do I set up SAML SSO with my identity provider?", key="sample3"):
-            # Add sample message directly to conversation
-            sample_text = "How do I set up SAML SSO with my identity provider?"
-            st.session_state.messages.append({"role": "user", "content": sample_text})
-            st.rerun()
-        
-        if st.button("How do I use the Python SDK to create assets programmatically?", key="sample4"):
-            # Add sample message directly to conversation
-            sample_text = "How do I use the Python SDK to create assets programmatically?"
-            st.session_state.messages.append({"role": "user", "content": sample_text})
-            st.rerun()
+            process_sample_question("How do I set up SAML SSO with my identity provider?")
+
+        if st.button("How do I use the Python to create assets?", key="sample4"):
+            process_sample_question("How do I use the Python to create assets?")
 
 # Footer
 st.markdown("---")

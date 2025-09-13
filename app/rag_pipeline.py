@@ -1,6 +1,6 @@
 import os
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
