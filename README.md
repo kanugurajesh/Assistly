@@ -74,7 +74,7 @@ An AI-powered customer support system that automatically classifies tickets and 
 ### 1. Clone and Setup Environment
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/kanugurajesh/Assistly
 cd crawling
 ```
 
