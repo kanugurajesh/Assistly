@@ -1,6 +1,5 @@
 import os
 import json
-import re
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -46,7 +45,7 @@ qdrant_client = QdrantClient(
 EMBEDDING_MODEL = "BAAI/bge-small-en-v1.5"  # FastEmbed model (matches qdrant-ingestion.py)
 VECTOR_SIZE = 384  # BGE small model vector size
 LLM_MODEL = "gpt-4o"
-COLLECTION_NAME = "atlan_docs"
+COLLECTION_NAME = "atlan_docs_enhanced"
 TOP_K = 5
 SCORE_THRESHOLD = 0.3  # Minimum similarity score for search results
 MAX_TOKENS = 1000  # Maximum tokens for OpenAI response
@@ -54,10 +53,10 @@ TEMPERATURE = 0.3  # OpenAI temperature for response generation
 CLASSIFICATION_TEMPERATURE = 0.1  # Lower temperature for more consistent classification
 
 # Advanced RAG Configuration
-ENABLE_QUERY_ENHANCEMENT = True  # Enable query enhancement using GPT-4o
+ENABLE_QUERY_ENHANCEMENT = False  # Temporarily disabled - query enhancement using GPT-4o
 ENABLE_HYBRID_SEARCH = True  # Enable hybrid vector + keyword search
-HYBRID_VECTOR_WEIGHT = 0.7  # Weight for vector search results (0.0-1.0)
-HYBRID_KEYWORD_WEIGHT = 0.3  # Weight for keyword search results (0.0-1.0)
+HYBRID_VECTOR_WEIGHT = 1  # Weight for vector search results (0.0-1.0)
+HYBRID_KEYWORD_WEIGHT = 0  # Weight for keyword search results (0.0-1.0)
 
 class AtlanRAG:
     def __init__(self) -> None:

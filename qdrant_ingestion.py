@@ -66,8 +66,7 @@ def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bo
 def preserve_code_blocks(text: str) -> str:
     """Preserve code blocks by adding extra spacing around them"""
     # Pattern to match code blocks (both ``` and indented)
-    code_block_pattern = r'(```[\s\S]*?```|
-    [^\n]*(?:\n    [^\n]*)*)
+    code_block_pattern = r'(```[\s\S]*?```|\n    [^\n]*(?:\n    [^\n]*)*)'
 
     # Add extra newlines before and after code blocks to prevent splitting
     def replace_code_block(match):
@@ -209,8 +208,18 @@ def get_existing_mongodb_ids(collection_name: str) -> set:
         print(f"Warning: Could not check existing vectors: {e}")
         return set()
 
-def process_mongodb_documents(source_url_filter: Optional[str] = None, incremental: bool = True, qdrant_collection_name: str = "atlan_docs") -> List[Dict]:
-    """Load documents from MongoDB and process them with incremental support"""
+def process_mongodb_documents(collection, source_url_filter: Optional[str] = None, incremental: bool = True, qdrant_collection_name: str = "atlan_docs") -> List[Dict]:
+    """Load documents from MongoDB and process them with incremental support
+
+    Args:
+        collection: MongoDB collection object
+        source_url_filter: Optional URL filter for documents
+        incremental: Whether to skip already processed documents
+        qdrant_collection_name: Name of the Qdrant collection
+
+    Returns:
+        List of processed document chunks
+    """
     print("Loading documents from MongoDB...")
 
     # Build query filter
@@ -385,6 +394,7 @@ def main() -> None:
     # Step 2: Process MongoDB documents
     start_time = time.time()
     chunks = process_mongodb_documents(
+        collection=collection,
         source_url_filter=args.source_url,
         incremental=not args.no_incremental,
         qdrant_collection_name=args.qdrant_collection

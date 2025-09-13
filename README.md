@@ -1,6 +1,6 @@
 # Atlan Customer Support Copilot
 
-An AI-powered customer support system that automatically classifies tickets and provides intelligent responses using Retrieval-Augmented Generation (RAG) with Atlan's documentation.
+An advanced AI-powered customer support system that automatically classifies tickets and provides intelligent responses using state-of-the-art Retrieval-Augmented Generation (RAG) with hybrid search, query enhancement, and optimized chunking strategies.
 
 ## 🌟 Features
 
@@ -8,8 +8,16 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **Bulk Ticket Classification**: Automatically classify 30+ sample tickets with AI-powered categorization
 - **Interactive AI Agent**: Real-time chat interface for new ticket submission and response
 - **Smart Classification**: Topic tags, sentiment analysis, and priority assignment
-- **RAG Responses**: Intelligent answers powered by Atlan's documentation
+- **Advanced RAG Responses**: Intelligent answers powered by hybrid search and enhanced retrieval
 - **Source Citations**: All responses include links to relevant documentation
+- **Search Transparency**: Real-time indicators showing search methods used (vector, keyword, or hybrid)
+
+### Advanced RAG Features
+- **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
+- **Query Enhancement**: GPT-4o powered query expansion for technical terms (configurable)
+- **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
+- **Smart Reranking**: Weighted merging of vector and keyword search results (70/30 split)
+- **Quality Metrics**: Chunk quality indicators including code detection and header analysis
 
 ### Classification Schema
 - **Topic Tags**: How-to, Product, Connector, Lineage, API/SDK, SSO, Glossary, Best practices, Sensitive data
@@ -18,29 +26,37 @@ An AI-powered customer support system that automatically classifies tickets and 
 
 ## 🏗️ Architecture
 
-### Complete Data Pipeline Flow
+### Enhanced Data Pipeline Flow with Advanced RAG
 ```
-┌─────────────┐    ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Firecrawl   │    │  MongoDB    │     │   Qdrant    │     │ Streamlit   │
-│ Web Scraper │───▶│ Document    │───▶│ Vector      │───▶│ Web App     │
-│             │    │ Storage     │     │ Database    │     │             │
-├─────────────┤    ├─────────────┤     ├─────────────┤     ├─────────────┤
-│ • docs      │    │ • Raw HTML  │     │ • Embeddings│     │ • Dashboard │
-│   atlan.com │    │ • Metadata  │     │ • FastEmbed │     │ • Chat UI   │
-│ • developer │    │ • Backup    │     │ • BGE-small │     │ • Analytics │
-│   atlan.com │    │   Files     │     │ • Search    │     │ • Real-time │
-└─────────────┘    └─────────────┘     └─────────────┘     └─────────────┘
-       │                  │                   │                   │
-   scrape.py         (Persistent           qdrant_             main.py
-   (Data Prep)        Storage)           ingestion.py       ( Deployment)
-                                         (Vector Prep)
+┌─────────────┐    ┌─────────────┐     ┌──────────────────┐     ┌─────────────┐
+│ Firecrawl   │    │  MongoDB    │     │     Qdrant       │     │ Streamlit   │
+│ Web Scraper │───▶│ Document    │───▶│ Enhanced Vector  │───▶│ Advanced    │
+│             │    │ Storage     │     │   Database       │     │ Web App     │
+├─────────────┤    ├─────────────┤     ├──────────────────┤     ├─────────────┤
+│ • docs      │    │ • Raw HTML  │     │ • Vector Search  │     │ • Dashboard │
+│   atlan.com │    │ • Metadata  │     │ • BM25 Keyword   │     │ • Chat UI   │
+│ • developer │    │ • Backup    │     │ • Hybrid Merge   │     │ • Analytics │
+│   atlan.com │    │   Files     │     │ • Smart Rerank   │     │ • Search UI │
+└─────────────┘    └─────────────┘     └──────────────────┘     └─────────────┘
+       │                  │                      │                      │
+   scrape.py         (Persistent            qdrant_                  main.py
+   (Data Prep)        Storage)            ingestion.py            (Enhanced UI)
+                                        (Enhanced Vector)
 
-                    ┌─────────────────────────────────────┐
-                    │          OpenAI GPT-4o             │
-                    │    • Ticket Classification         │
-                    │    • RAG Response Generation       │
-                    │    • Sentiment & Priority Analysis │
-                    └─────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                          OpenAI GPT-4o Enhanced Pipeline                   │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ • Ticket Classification           • Query Enhancement (Optional)            │
+│ • RAG Response Generation        • Technical Term Expansion                │
+│ • Sentiment & Priority Analysis  • Hybrid Search Coordination             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                           Advanced RAG Components                          │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ Query Enhancement → Hybrid Search → Smart Reranking → Response Generation  │
+│      (GPT-4o)         (Vector+BM25)     (70/30 Weight)      (Cited)       │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ### System Components
@@ -52,10 +68,11 @@ An AI-powered customer support system that automatically classifies tickets and 
 ## 🛠️ Tech Stack
 
 ### AI/ML
-- **OpenAI GPT-4o**: LLM for classification and response generation
+- **OpenAI GPT-4o**: LLM for classification, response generation, and query enhancement
 - **FastEmbed BAAI/bge-small-en-v1.5**: Vector embeddings for semantic search (384 dimensions)
-- **Qdrant**: Vector database for RAG retrieval
-- **LangChain**: Text processing and chunking
+- **Qdrant Cloud**: Vector database with hybrid search capabilities
+- **rank-bm25**: BM25 algorithm for keyword search and hybrid retrieval
+- **LangChain**: Enhanced text processing with advanced chunking strategies
 
 ### Application
 - **Streamlit**: Interactive web application framework
@@ -151,15 +168,18 @@ python scrape.py https://your-docs.com --limit 500 --collection custom_docs
 ```
 *All scraped content automatically stored in MongoDB with metadata and backup files.*
 
-**Step 2: Vector Database Ingestion**
+**Step 2: Enhanced Vector Database Ingestion**
 ```bash
-# Basic ingestion (processes all documents)
-python qdrant_ingestion.py
+# Create enhanced collection with advanced chunking
+python qdrant_ingestion.py --qdrant-collection "atlan_docs_enhanced" --recreate
 
-# Advanced ingestion with filtering (see Advanced Pipeline Options below)
-python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+# Advanced ingestion with source filtering
+python qdrant_ingestion.py --source-url "https://docs.atlan.com" --qdrant-collection "atlan_docs_enhanced"
+
+# Incremental updates (recommended for production)
+python qdrant_ingestion.py --qdrant-collection "atlan_docs_enhanced"
 ```
-*Chunks documents using LangChain, creates embeddings with FastEmbed BGE-small, stores in Qdrant.*
+*Enhanced chunking preserves code blocks, creates quality metrics, and generates embeddings with FastEmbed BGE-small for hybrid search.*
 
 **Note**: The application comes with pre-processed data, so this step is only needed for custom datasets or updates. For advanced configuration options, see the "Advanced Pipeline Options" section below.
 
@@ -327,36 +347,76 @@ The application will open automatically in your browser at `http://localhost:850
 4. Get intelligent responses with source citations
 5. Try sample questions or submit your own tickets
 
-## 🧠 AI Pipeline Details
+## 🧠 Advanced AI Pipeline Details
 
-### Classification Logic
+### Enhanced Classification Logic
 The system analyzes tickets using structured prompts to generate:
-1. **Topic Tags**: Multiple relevant categories
-2. **Sentiment**: Emotional tone analysis
-3. **Priority**: Business impact assessment
+1. **Topic Tags**: Multiple relevant categories with high accuracy
+2. **Sentiment**: Emotional tone analysis for prioritization
+3. **Priority**: Business impact assessment with context awareness
 
-### RAG Response Logic
-- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using documentation
-- **Routing Topics**: Connector, Lineage, Glossary, Sensitive data → Route to appropriate teams
+### Advanced RAG Response Logic
+- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using hybrid search
+- **Routing Topics**: Connector, Lineage, Glossary, Sensitive data → Route to specialized teams
+- **Query Processing**: Optional GPT-4o enhancement expands technical terms
+- **Search Strategy**: Hybrid vector + keyword search with smart reranking
+- **Response Generation**: Context-aware answers with source attribution
 
-### Chunking Strategy
+### Advanced RAG Pipeline Components
+
+#### 1. Query Enhancement Pipeline (Optional)
+- **Input**: Raw user query (e.g., "How to setup SSO?")
+- **Processing**: GPT-4o expands technical terms and acronyms
+- **Output**: Enhanced query (e.g., "How to configure SAML single sign-on authentication in Atlan?")
+- **Benefits**: Better retrieval for technical documentation
+- **Toggle**: Configurable via `ENABLE_QUERY_ENHANCEMENT`
+
+#### 2. Hybrid Search System
+- **Vector Search**: Semantic similarity using FastEmbed BGE-small (384 dim)
+- **Keyword Search**: BM25 algorithm for exact term matching
+- **Fusion Strategy**: 70/30 weighted combination with smart deduplication
+- **Reranking**: Boosts documents found by both methods
+- **Fallback**: Graceful degradation to vector-only if BM25 fails
+
+#### 3. Enhanced Chunking Strategy
+- **Structure Preservation**: Special handling for code blocks and headers
+- **Smart Separators**: 15+ separator types for optimal boundaries
+- **Quality Metrics**: Tracks code presence, headers, and word count
+- **Metadata Enhancement**: Chunk-level quality indicators
+- **Context Maintenance**: Preserves related content together
+
+### Enhanced Chunking Strategy
 - **Chunk Size**: 1200 tokens with 200 token overlap
-- **Method**: Recursive character splitting with markdown awareness
-- **Preservation**: Code blocks, tables, and lists as single units
+- **Method**: Advanced recursive character splitting with enhanced separators
+- **Code Preservation**: Special handling for ``` code blocks and indented code
+- **Structure Awareness**: Preserves headers, lists, procedures, and markdown formatting
+- **Quality Metrics**: Tracks code blocks, headers, word count, and chunk quality scores
+- **Smart Boundaries**: 15+ separator types for optimal semantic chunking
 
-### Vector Search
-- **Embedding Model**: BAAI/bge-small-en-v1.5 (384 dimensions)
-- **Search Strategy**: Cosine similarity with score threshold 0.3
-- **Top-K Retrieval**: 5 most relevant chunks
+### Hybrid Search System
+- **Vector Search**: BAAI/bge-small-en-v1.5 (384 dimensions) with cosine similarity
+- **Keyword Search**: BM25 algorithm for exact term matching
+- **Search Fusion**: 70/30 weighted combination of vector and keyword results
+- **Smart Reranking**: Deduplication and relevance scoring with boost for multi-method matches
+- **Score Threshold**: 0.3 minimum similarity for vector results
+- **Top-K Retrieval**: 5 most relevant chunks from hybrid results
 
 ## 🔧 Configuration Options
 
 ### Environment Variables (app/.env)
-- `OPENAI_API_KEY`: Required for GPT-4o classification and response generation
-- `QDRANT_URI`: Qdrant Cloud vector database endpoint
+- `OPENAI_API_KEY`: Required for GPT-4o classification, response generation, and query enhancement
+- `QDRANT_URI`: Qdrant Cloud vector database endpoint for hybrid search
 - `QDRANT_API_KEY`: Authentication for Qdrant Cloud instance
 - `MONGODB_URI`: MongoDB Atlas connection string for document storage
 - `FIRECRAWL_API_KEY`: Firecrawl API key for web scraping (data pipeline only)
+
+### Advanced RAG Configuration (app/rag_pipeline.py)
+- `ENABLE_QUERY_ENHANCEMENT`: Toggle GPT-4o query expansion (default: False)
+- `ENABLE_HYBRID_SEARCH`: Toggle vector + BM25 hybrid search (default: True)
+- `HYBRID_VECTOR_WEIGHT`: Weight for vector search results (default: 0.7)
+- `HYBRID_KEYWORD_WEIGHT`: Weight for BM25 keyword results (default: 0.3)
+- `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs_enhanced")
+- `SCORE_THRESHOLD`: Minimum similarity threshold (default: 0.3)
 
 ### Data Pipeline Configuration
 - **Scraping Parameters**: Use `--limit` and `--collection` options in scrape.py for custom URLs and crawl limits
@@ -420,24 +480,30 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 - **Response Templates**: Modify RAG and routing responses in app/main.py
 - **UI Styling**: Update custom CSS in app/main.py for branding
 
-## 📊 Performance Metrics
+## 📊 Performance Metrics & Advanced Features
 
-### Data Pipeline Efficiency
-- **Firecrawl Scraping**: Automated content extraction with metadata preservation
-- **MongoDB Storage**: Reliable document persistence with backup capabilities
-- **Vector Ingestion**: Efficient batch processing of embeddings to Qdrant
+### Enhanced Data Pipeline Efficiency
+- **Smart Scraping**: Firecrawl with automated content extraction and metadata preservation
+- **Persistent Storage**: MongoDB with backup capabilities and incremental processing
+- **Advanced Vector Ingestion**: Batch processing with enhanced chunking and quality metrics
+- **Hybrid Search Performance**: Combined vector + keyword search with intelligent reranking
 
-### Response Quality Measures
+### Advanced Response Quality Measures
+- **Multi-Method Retrieval**: Hybrid search combines semantic and keyword matching
+- **Query Enhancement**: GPT-4o expands technical terms for better retrieval (configurable)
+- **Smart Reranking**: 70/30 weighted fusion of vector and BM25 results
 - **Source Attribution**: All RAG responses include original documentation URLs
-- **Relevance Scoring**: Vector similarity scores for retrieved chunks (threshold 0.3)
-- **Classification Consistency**: Structured JSON output with validation
-- **Context Quality**: 5 most relevant chunks retrieved for comprehensive answers
+- **Relevance Scoring**: Vector similarity + BM25 scoring with threshold 0.3
+- **Context Quality**: Top-5 chunks from hybrid results for comprehensive answers
+- **Search Transparency**: Real-time indicators showing search methods used
 
-### Scalability Features
-- **Persistent Storage**: MongoDB enables data reprocessing without re-scraping
-- **Vector Database**: Qdrant Cloud provides fast similarity search at scale
-- **Rate Limiting**: API-friendly request handling for OpenAI and Firecrawl
-- **Error Handling**: Graceful fallbacks and retries across the pipeline
+### Advanced Scalability Features
+- **Feature Toggles**: Configurable query enhancement and hybrid search
+- **Collection Management**: Separate enhanced and standard collections
+- **Incremental Processing**: Skip already processed documents for efficiency
+- **Quality Metrics**: Chunk-level quality indicators (code detection, headers, word count)
+- **Error Resilience**: Graceful fallbacks for all advanced features
+- **Performance Monitoring**: Search method tracking and optimization insights
 
 ## 🚨 Troubleshooting
 
@@ -493,26 +559,69 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 
 ## 📝 Development Notes
 
-### Project Structure Philosophy
-- **Separation of Concerns**: Data pipeline (root) vs application deployment (app/)
-- **Environment Isolation**: Each tier has its own requirements and configuration
-- **Data Persistence**: MongoDB enables reprocessing without re-scraping expensive operations
-- **Deployment Ready**: app/ folder contains everything needed for Streamlit Cloud deployment
+### Advanced Project Structure Philosophy
+- **Separation of Concerns**: Clean separation between data pipeline (root) and deployment (app/)
+- **Environment Isolation**: Each tier has independent requirements and configuration
+- **Feature Modularity**: Advanced RAG features can be toggled independently
+- **Data Persistence**: MongoDB enables reprocessing and experimentation
+- **Deployment Ready**: Enhanced app/ folder with advanced search capabilities
 
-### Architecture Decisions
-1. **Complete Data Pipeline**: Firecrawl → MongoDB → Qdrant → Streamlit for end-to-end automation
-2. **Unified Python Stack**: Streamlit for both UI and AI pipeline for simplicity
-3. **Vector Database**: Qdrant Cloud chosen for performance and scalability
-4. **Embedding Strategy**: FastEmbed BGE-small for efficient 384-dim embeddings
-5. **Response Generation**: OpenAI GPT-4o for high-quality responses
-6. **Data Persistence**: MongoDB for reliable document storage and backup
+### Enhanced Architecture Decisions
+1. **Advanced Data Pipeline**: Firecrawl → MongoDB → Enhanced Qdrant → Advanced Streamlit
+2. **Hybrid Search System**: Vector + BM25 keyword search with intelligent fusion
+3. **Query Enhancement**: Optional GPT-4o query expansion for technical terms
+4. **Enhanced Chunking**: Code-aware splitting with quality metrics
+5. **Smart Configuration**: Feature toggles for different deployment scenarios
+6. **Dual Collection Strategy**: Standard vs enhanced collections for comparison
+7. **Performance Optimization**: Configurable search weights and thresholds
 
-### Trade-offs
-- **Simplicity vs Scale**: Streamlit for rapid development over complex web frameworks
-- **Cost vs Performance**: OpenAI GPT-4o for quality vs local models for cost
-- **Storage vs Compute**: Pre-computed embeddings vs real-time generation
-- **Flexibility vs Complexity**: Multi-stage pipeline (scrape → store → vectorize → deploy)
-- **Data Persistence**: MongoDB storage ensures data availability and reprocessing capability
+### Advanced Trade-offs & Design Decisions
+- **Query Enhancement**: Optional GPT-4o expansion vs direct search (configurable)
+- **Hybrid Search**: Vector + keyword complexity vs pure vector simplicity
+- **Enhanced Chunking**: Structure preservation vs simple character splitting
+- **Feature Toggles**: Flexibility vs configuration complexity
+- **Dual Collections**: Comparison capability vs storage overhead
+- **Search Transparency**: User insight vs UI complexity
+- **Performance vs Features**: Configurable enhancement levels for different use cases
+
+### Production-Ready Enhancements
+- **Collection Management**: Enhanced vs standard collections for A/B testing
+- **Feature Flags**: Runtime configuration of advanced features
+- **Quality Metrics**: Chunk-level quality indicators for optimization
+- **Search Analytics**: Real-time method tracking and performance insights
+- **Graceful Degradation**: Fallbacks ensure system reliability
+
+## 🏆 Comparison: Basic vs Enhanced RAG
+
+### Basic RAG Implementation (development branch)
+| Feature | Implementation |
+|---------|----------------|
+| **Search Method** | Vector similarity only |
+| **Query Processing** | Direct user query |
+| **Chunking** | Basic character splitting |
+| **Results** | Top-5 vector matches |
+| **UI Feedback** | Response only |
+| **Collection** | `atlan_docs` |
+
+### Enhanced RAG Implementation (advanced-rag-enhancements branch)
+| Feature | Implementation |
+|---------|----------------|
+| **Search Method** | Hybrid vector + BM25 keyword search |
+| **Query Processing** | Optional GPT-4o query enhancement |
+| **Chunking** | Code-aware splitting with quality metrics |
+| **Results** | Smart reranking with 70/30 fusion |
+| **UI Feedback** | Search method indicators + transparency |
+| **Collection** | `atlan_docs_enhanced` with enhanced metadata |
+| **Configurability** | Feature toggles for all enhancements |
+| **Performance** | Graceful degradation and fallbacks |
+
+### Key Improvements
+1. **✅ Better Technical Term Handling**: Hybrid search excels at exact matches
+2. **✅ Enhanced Code Examples**: Preserved code blocks in chunking
+3. **✅ Query Expansion**: GPT-4o expands acronyms and technical terms
+4. **✅ Search Transparency**: Users see which methods found their answers
+5. **✅ Quality Metrics**: Chunk-level indicators for optimization
+6. **✅ Configurable Features**: Toggle enhancements based on needs
 
 ## 🤝 Contributing
 
