@@ -4,7 +4,11 @@ import json
 import time
 
 # Import from local rag_pipeline module in the same directory
-from rag_pipeline import RAGPipeline
+try:
+    from rag_pipeline import RAGPipeline
+except EnvironmentError as e:
+    st.error(f"Configuration Error: {e}")
+    st.stop()
 
 # Page configuration
 st.set_page_config(
@@ -618,9 +622,9 @@ elif page == "💬 Chat Agent":
     with col2:
         if st.button("How do I set up SAML SSO with my identity provider?", key="sample3"):
             process_sample_question("How do I set up SAML SSO with my identity provider?")
-
-        if st.button("How do I use the Python to create assets?", key="sample4"):
-            process_sample_question("How do I use the Python to create assets?")
+        
+        if st.button("What is the use of atlan cli?", key="sample4"):
+            process_sample_question("What is the use of atlan cli?")
 
 # Footer
 st.markdown("---")
