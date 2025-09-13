@@ -17,31 +17,179 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **Sentiment**: Frustrated, Curious, Angry, Neutral
 - **Priority**: P0 (High), P1 (Medium), P2 (Low)
 
+## 🎯 Major Design Decisions & Trade-offs
+
+### 1. Multi-Stage Pipeline Architecture
+**Decision**: Separate data pipeline (scraping → storage → vectorization) from deployment application.
+
+**Why**:
+- **Data Persistence**: Web scraping is expensive and rate-limited. MongoDB storage allows reprocessing embeddings without re-scraping.
+- **Deployment Flexibility**: App folder contains only deployment dependencies, enabling clean Streamlit Cloud deployment.
+- **Development Efficiency**: Can iterate on AI logic without re-running expensive data collection.
+
+**Trade-off**: Increased complexity vs. reliability and cost efficiency.
+
+### 2. Technology Stack Choices
+
+#### Firecrawl vs. Custom Scraping
+**Decision**: Firecrawl API for web scraping instead of BeautifulSoup/Scrapy.
+
+**Why**:
+- **Content Quality**: Advanced content extraction handles JavaScript, dynamic content, and complex layouts.
+- **Rate Limiting**: Built-in respectful crawling with automatic delays.
+- **Maintenance**: No need to maintain scraping logic for different website structures.
+
+**Trade-off**: API cost vs. development/maintenance time and content quality.
+
+#### MongoDB + Qdrant vs. Single Database
+**Decision**: Dual storage (MongoDB for documents, Qdrant for vectors) vs. single vector database.
+
+**Why**:
+- **Data Integrity**: MongoDB preserves original content for reprocessing and debugging.
+- **Performance**: Qdrant specializes in vector similarity search with superior performance.
+- **Flexibility**: Can change embedding models without losing original documents.
+- **Backup Strategy**: Multiple data preservation layers prevent data loss.
+
+**Trade-off**: Infrastructure complexity vs. performance and data safety.
+
+#### OpenAI GPT-4o vs. Local Models
+**Decision**: OpenAI GPT-4o for classification and response generation.
+
+**Why**:
+- **Quality**: Superior reasoning for complex ticket classification and response generation.
+- **JSON Reliability**: Consistent structured output for automated processing.
+- **Development Speed**: No model training, fine-tuning, or hosting infrastructure needed.
+- **Context Window**: Large context enables conversational memory integration.
+
+**Trade-off**: Ongoing API costs vs. response quality and development speed.
+
+#### FastEmbed BGE-small vs. OpenAI Embeddings
+**Decision**: BAAI/bge-small-en-v1.5 (384-dim) via FastEmbed for document embeddings.
+
+**Why**:
+- **Cost Efficiency**: Free local embeddings vs. OpenAI embedding API costs.
+- **Performance**: 384 dimensions balance quality and storage/compute efficiency.
+- **Independence**: No API dependency for vector generation enables batch processing.
+- **Privacy**: Document content never leaves local environment.
+
+**Trade-off**: Slightly lower embedding quality vs. significant cost savings and privacy.
+
+### 3. Memory Management Strategy
+**Decision**: In-memory conversational history with LangChain vs. database-backed sessions.
+
+**Why**:
+- **Simplicity**: No additional database dependencies or infrastructure.
+- **Performance**: RAM access for conversation context is instantaneous.
+- **Session Isolation**: Natural cleanup when application restarts.
+- **Development Speed**: No database schema design or migration concerns.
+
+**Trade-off**: Memory lost on restart vs. infrastructure simplicity and performance.
+
+### 4. User Interface Choice
+**Decision**: Streamlit vs. React/Vue.js web application.
+
+**Why**:
+- **Rapid Prototyping**: Python-native UI development matches AI pipeline language.
+- **Integrated Deployment**: Streamlit Cloud provides seamless hosting for Python apps.
+- **Developer Experience**: Single language for entire application stack.
+- **Built-in Components**: Chat interfaces, file uploads, and data visualization components.
+
+**Trade-off**: Limited UI customization vs. development speed and deployment simplicity.
+
+### 5. Response Generation Strategy
+**Decision**: Hybrid routing (RAG for some topics, simple routing for others).
+
+**Why**:
+- **Resource Optimization**: RAG processing only for topics where documentation exists.
+- **Response Quality**: Technical topics get detailed, sourced answers.
+- **Fallback Strategy**: Non-technical topics route to appropriate human teams.
+- **Cost Control**: Expensive vector searches and LLM calls only when beneficial.
+
+**Trade-off**: Complex logic vs. cost efficiency and appropriate response types.
+
+### 6. Data Chunking Strategy
+**Decision**: 1200 token chunks with 200 overlap using recursive character splitting.
+
+**Why**:
+- **Context Preservation**: Large chunks maintain semantic coherence.
+- **Overlap Benefits**: 200-token overlap prevents information loss at boundaries.
+- **Markdown Awareness**: Preserves code blocks, tables, and structured content.
+- **Token Optimization**: Fits within context windows while maximizing information density.
+
+**Trade-off**: Storage size vs. semantic quality and context preservation.
+
 ## 🏗️ Architecture
 
-### Complete Data Pipeline Flow
-```
-┌─────────────┐    ┌─────────────┐     ┌─────────────┐     ┌─────────────┐
-│ Firecrawl   │    │  MongoDB    │     │   Qdrant    │     │ Streamlit   │
-│ Web Scraper │───▶│ Document    │───▶│ Vector      │───▶│ Web App     │
-│             │    │ Storage     │     │ Database    │     │             │
-├─────────────┤    ├─────────────┤     ├─────────────┤     ├─────────────┤
-│ • docs      │    │ • Raw HTML  │     │ • Embeddings│     │ • Dashboard │
-│   atlan.com │    │ • Metadata  │     │ • FastEmbed │     │ • Chat UI   │
-│ • developer │    │ • Backup    │     │ • BGE-small │     │ • Analytics │
-│   atlan.com │    │   Files     │     │ • Search    │     │ • Real-time │
-└─────────────┘    └─────────────┘     └─────────────┘     └─────────────┘
-       │                  │                   │                   │
-   scrape.py         (Persistent           qdrant_             main.py
-   (Data Prep)        Storage)           ingestion.py       ( Deployment)
-                                         (Vector Prep)
+### Enhanced Data Pipeline & System Architecture
 
-                    ┌─────────────────────────────────────┐
-                    │          OpenAI GPT-4o             │
-                    │    • Ticket Classification         │
-                    │    • RAG Response Generation       │
-                    │    • Sentiment & Priority Analysis │
-                    └─────────────────────────────────────┘
+```
+                        🌐 DATA COLLECTION LAYER
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    Firecrawl Web Scraper                        │
+    │  ┌─────────────────┐    ┌─────────────────┐    Rate Limiting    │
+    │  │ docs.atlan.com  │    │developer.atlan.c│   & Content       │
+    │  │                 │    │om               │   Quality Control   │
+    │  └─────────────────┘    └─────────────────┘                     │
+    └──────────────────────┬──────────────────────────────────────────┘
+                           │ scrape.py
+                           ▼
+                🗄️ PERSISTENT STORAGE LAYER
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      MongoDB Atlas                              │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+    │  │   Raw Content   │  │    Metadata     │  │  Backup Files   │  │
+    │  │   • HTML Text   │  │  • URLs         │  │  • JSON Export  │  │
+    │  │   • Structure   │  │  • Timestamps   │  │  • Recovery     │  │
+    │  │   • Clean Text  │  │  • Source Info  │  │    Data         │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+    └──────────────────────┬──────────────────────────────────────────┘
+                           │ qdrant_ingestion.py
+                           ▼
+                  🧠 VECTOR PROCESSING LAYER
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    Text Processing Pipeline                     │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+    │  │   Chunking      │  │   Embeddings    │  │ Vector Storage  │  │
+    │  │ • 1200 tokens   │→ │ • BGE-small     │→ │ • Qdrant Cloud  │  │
+    │  │ • 200 overlap   │  │ • 384 dims      │  │ • Similarity    │  │
+    │  │ • Markdown      │  │ • Local Gen     │  │ • Collections   │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+    └──────────────────────────────────┬──────────────────────────────┘
+                                       │
+                                       ▼
+                        🤖 AI PROCESSING LAYER
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                      OpenAI GPT-4o                              │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+    │  │Classification   │  │  RAG Response   │  │ Memory Context  │  │
+    │  │• Topic Tags     │  │ • Doc Retrieval │  │• Session State  │  │
+    │  │• Sentiment      │  │ • Answer Gen    │  │• Chat History   │  │
+    │  │• Priority       │  │ • Citations     │  │• Conversation   │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+    └──────────────────────┬──────────────────────┬────────────────── ┘
+                           │                      │
+                           ▼                      ▼
+                       🖥️ APPLICATION LAYER (main.py)
+    ┌─────────────────────────────────────────────────────────────────┐
+    │                    Streamlit Web Application                    │
+    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
+    │  │   Dashboard     │  │   Chat Agent    │  │   Analytics     │  │
+    │  │ • Bulk Process  │  │ • Real-time     │  │ • Performance   │  │
+    │  │ • 30+ Tickets   │  │ • Memory        │  │ • Metrics       │  │
+    │  │ • Statistics    │  │ • Citations     │  │ • Usage Stats   │  │
+    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
+    └─────────────────────────────────────────────────────────────────┘
+
+        🔄 DATA FLOW DIRECTIONS:
+        scrape.py        → MongoDB (Document Storage)
+        qdrant_ingestion.py → Qdrant (Vector Processing)
+        main.py          → All Services (Real-time Queries)
+
+        ⚡ ERROR HANDLING & RECOVERY:
+        • MongoDB backup files for data recovery
+        • Incremental processing to handle failures
+        • Rate limiting and retry logic
+        • Graceful degradation for service outages
 ```
 
 ### System Components
