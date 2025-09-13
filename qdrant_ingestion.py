@@ -1,5 +1,4 @@
 import os
-import sys
 import argparse
 from typing import List, Dict
 from dotenv import load_dotenv
@@ -13,10 +12,13 @@ from datetime import datetime
 
 load_dotenv()
 
+MONGODB_DB = "Cluster0"
+MONGODB_COLLECTION = "atlan_developer_docs"
+
 # Initialize clients
 mongo_client = MongoClient(os.getenv("MONGODB_URI"))
-db = mongo_client.get_database("Cluster0")
-collection = db.get_collection("atlan_developer_docs")  # Default collection, can be overridden by args
+db = mongo_client.get_database(MONGODB_DB)
+collection = db.get_collection(MONGODB_COLLECTION)  # Default collection, can be overridden by args
 
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),

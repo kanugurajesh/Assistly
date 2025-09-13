@@ -112,13 +112,7 @@ python scrape.py
 python qdrant-ingestion.py
 ```
 
-**Step 3: Process Sample Tickets (Optional)**
-```bash
-# Classify all sample tickets for testing
-python process_tickets.py
-```
-
-### 4. Run the Application
+### 3. Run the Application
 
 **Run the Streamlit app:**
 ```bash
