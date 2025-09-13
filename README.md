@@ -142,20 +142,154 @@ pip install -r requirements.txt
 
 **Step 1: Web Scraping with Firecrawl**
 ```bash
-# Scrape Atlan documentation (already completed)
+# Basic scraping (pre-completed for Atlan docs)
 python scrape.py https://docs.atlan.com --limit 700
 python scrape.py https://developer.atlan.com --limit 300
+
+# Custom scraping examples
+python scrape.py https://your-docs.com --limit 500 --collection custom_docs
 ```
 *All scraped content automatically stored in MongoDB with metadata and backup files.*
 
 **Step 2: Vector Database Ingestion**
 ```bash
-# Process MongoDB documents and create embeddings in Qdrant
+# Basic ingestion (processes all documents)
 python qdrant_ingestion.py
+
+# Advanced ingestion with filtering (see Advanced Pipeline Options below)
+python qdrant_ingestion.py --source-url "https://docs.atlan.com"
 ```
 *Chunks documents using LangChain, creates embeddings with FastEmbed BGE-small, stores in Qdrant.*
 
-**Note**: The application comes with pre-processed data, so this step is only needed for custom datasets or updates.
+**Note**: The application comes with pre-processed data, so this step is only needed for custom datasets or updates. For advanced configuration options, see the "Advanced Pipeline Options" section below.
+
+## 🔧 Advanced Pipeline Options
+
+### Scraping Configuration (scrape.py)
+
+**Basic Command Structure:**
+```bash
+python scrape.py <URL> [OPTIONS]
+```
+
+**Available Options:**
+- `--limit <number>`: Maximum pages to crawl (default: 700)
+- `--collection <name>`: MongoDB collection name (default: atlan_developer_docs)
+
+**Common Scraping Scenarios:**
+```bash
+# Scrape with custom page limit
+python scrape.py https://docs.atlan.com --limit 500
+
+# Scrape to custom MongoDB collection
+python scrape.py https://docs.atlan.com --collection custom_docs
+
+# Scrape developer docs with different limits
+python scrape.py https://developer.atlan.com --limit 200 --collection dev_docs
+```
+
+### Ingestion Configuration (qdrant_ingestion.py)
+
+**Advanced Command Structure:**
+```bash
+python qdrant_ingestion.py [OPTIONS]
+```
+
+**Available Options:**
+- `--source-url <url>`: Filter documents by specific source URL
+- `--collection <name>`: MongoDB collection name (default: atlan_developer_docs)
+- `--qdrant-collection <name>`: Qdrant collection name (default: atlan_docs)
+- `--recreate`: Delete and recreate Qdrant collection (removes existing data)
+- `--no-incremental`: Process all documents (skip duplicate checking)
+
+**Advanced Ingestion Examples:**
+```bash
+# Process only developer documentation
+python qdrant_ingestion.py --source-url "https://developer.atlan.com"
+
+# Process only general documentation
+python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+
+# Recreate collection (fresh start)
+python qdrant_ingestion.py --recreate
+
+# Process all documents without incremental checking
+python qdrant_ingestion.py --no-incremental
+
+# Process custom collection with filtering
+python qdrant_ingestion.py --collection custom_docs --source-url "https://example.com"
+
+# Create custom Qdrant collection
+python qdrant_ingestion.py --qdrant-collection "developer_vectors"
+
+# Process custom MongoDB collection to custom Qdrant collection
+python qdrant_ingestion.py --collection dev_docs --qdrant-collection "dev_vectors"
+
+# Full rebuild with specific source and custom collection
+python qdrant_ingestion.py --recreate --source-url "https://developer.atlan.com" --qdrant-collection "dev_only"
+```
+
+## 📂 Document Filtering & Collection Management
+
+### Source URL Filtering Benefits
+
+**Selective Processing:**
+- Update only specific documentation domains
+- Test pipeline with subset of data
+- Separate processing schedules for different sites
+
+**Document Type Classification:**
+- Automatic categorization: `developer.atlan.com` → "developer" type
+- All other sources → "docs" type
+- Enables filtered search and analytics
+
+**Performance Optimization:**
+- Process only changed documentation
+- Reduce vector database update time
+- Minimize embedding generation costs
+
+**Custom Qdrant Collections:**
+- Separate vector collections for different projects
+- Independent collection lifecycle management
+- Isolated testing and production environments
+- Multiple documentation versions in parallel
+
+### Collection Management Workflows
+
+**Development & Testing:**
+```bash
+# Create test collection with limited data
+python scrape.py https://docs.atlan.com --limit 50 --collection test_docs
+python qdrant_ingestion.py --collection test_docs --qdrant-collection test_vectors --recreate
+```
+
+**Production Updates:**
+```bash
+# Incremental update (default behavior)
+python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+
+# Full rebuild when needed
+python qdrant_ingestion.py --recreate
+```
+
+**Multi-Source Management:**
+```bash
+# Separate ingestion for different documentation types
+python qdrant_ingestion.py --source-url "https://developer.atlan.com"
+python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+```
+
+### Incremental Processing
+
+**How It Works:**
+- Checks MongoDB document IDs already in Qdrant
+- Skips processing of existing documents
+- Only processes new or updated content
+
+**When to Use `--no-incremental`:**
+- After modifying chunking parameters
+- When reprocessing is needed due to embedding model changes
+- For debugging or validation purposes
 
 ### 4. Run the Application
 
@@ -225,9 +359,61 @@ The system analyzes tickets using structured prompts to generate:
 - `FIRECRAWL_API_KEY`: Firecrawl API key for web scraping (data pipeline only)
 
 ### Data Pipeline Configuration
-- **Scraping Parameters**: Modify scrape.py for custom URLs and crawl limits
+- **Scraping Parameters**: Use `--limit` and `--collection` options in scrape.py for custom URLs and crawl limits
+- **Source Filtering**: Use `--source-url` in qdrant_ingestion.py for selective document processing
+- **Collection Management**: Use `--qdrant-collection`, `--recreate` and `--no-incremental` options for collection lifecycle
+- **Custom Collections**: Use `--qdrant-collection` to create separate vector collections for different projects
 - **Chunk Configuration**: Adjust size and overlap in qdrant_ingestion.py (default: 1200 tokens, 200 overlap)
 - **Vector Search**: Modify threshold and top-K in app/rag_pipeline.py (default: 0.3 threshold, 5 chunks)
+
+### Common Pipeline Workflows
+
+**Complete Fresh Setup:**
+```bash
+# Scrape new documentation
+python scrape.py https://new-docs.com --limit 500 --collection new_docs
+
+# Create fresh vector database
+python qdrant_ingestion.py --collection new_docs --recreate
+```
+
+**Incremental Updates (Recommended):**
+```bash
+# Re-scrape updated content (overwrites existing URLs)
+python scrape.py https://docs.atlan.com --limit 700
+
+# Incremental ingestion (only new/changed documents)
+python qdrant_ingestion.py
+```
+
+**Domain-Specific Processing:**
+```bash
+# Update only developer documentation vectors
+python qdrant_ingestion.py --source-url "https://developer.atlan.com"
+
+# Update only general documentation vectors
+python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+```
+
+**Testing and Development:**
+```bash
+# Create test dataset
+python scrape.py https://docs.atlan.com --limit 20 --collection test_data
+
+# Test ingestion pipeline with custom Qdrant collection
+python qdrant_ingestion.py --collection test_data --qdrant-collection test_vectors --recreate
+```
+
+**Multiple Project Management:**
+```bash
+# Project A: Customer documentation
+python scrape.py https://customer-docs.com --collection customer_docs
+python qdrant_ingestion.py --collection customer_docs --qdrant-collection customer_vectors
+
+# Project B: Internal documentation
+python scrape.py https://internal-docs.com --collection internal_docs
+python qdrant_ingestion.py --collection internal_docs --qdrant-collection internal_vectors
+```
 
 ### Application Customization
 - **Classification Prompts**: Edit prompts in app/rag_pipeline.py for custom categorization
