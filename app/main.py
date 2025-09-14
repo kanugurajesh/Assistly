@@ -802,7 +802,7 @@ elif page == "💬 Chat Agent":
             st.error("RAG pipeline not initialized. Please check your configuration.")
         else:
             # Format the user message
-            user_message = f"**Subject:** {subject}\n\n{message}" if subject else message
+            user_message = f"Subject: {subject}\n\n{message}" if subject else message
 
             # Add user message to UI
             st.session_state.messages.append({
