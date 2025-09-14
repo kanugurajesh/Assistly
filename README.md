@@ -18,7 +18,7 @@ An advanced AI-powered customer support system that automatically classifies tic
 - **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
 - **Query Enhancement**: GPT-4o powered query expansion for technical terms (configurable)
 - **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
-- **Smart Reranking**: Weighted merging of vector and keyword search results (70/30 split)
+- **Smart Reranking**: Weighted merging of vector and keyword search results
 - **Quality Metrics**: Chunk quality indicators including code detection and header analysis
 - **Real-time Configuration**: Dynamic settings updates without application restart
 - **Settings Import/Export**: JSON-based configuration backup and sharing
