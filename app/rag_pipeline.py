@@ -549,6 +549,63 @@ class RAGPipeline:
         self.rag = AtlanRAG()
         self.classifier = TicketClassifier()
         self.memory_manager = get_memory_manager()
+        # Store current settings for dynamic updates
+        self.current_settings = {
+            'top_k': TOP_K,
+            'score_threshold': SCORE_THRESHOLD,
+            'max_tokens': MAX_TOKENS,
+            'temperature': TEMPERATURE,
+            'classification_temperature': CLASSIFICATION_TEMPERATURE,
+            'llm_model': LLM_MODEL,
+            'enable_query_enhancement': ENABLE_QUERY_ENHANCEMENT,
+            'enable_hybrid_search': ENABLE_HYBRID_SEARCH,
+            'hybrid_vector_weight': HYBRID_VECTOR_WEIGHT,
+            'hybrid_keyword_weight': HYBRID_KEYWORD_WEIGHT
+        }
+
+    def update_settings(self, new_settings: Dict[str, Any]) -> bool:
+        """Update pipeline settings dynamically"""
+        try:
+            # Update current settings
+            self.current_settings.update(new_settings)
+
+            # Update global constants (for new instances)
+            global TOP_K, SCORE_THRESHOLD, MAX_TOKENS, TEMPERATURE, CLASSIFICATION_TEMPERATURE
+            global LLM_MODEL, ENABLE_QUERY_ENHANCEMENT, ENABLE_HYBRID_SEARCH
+            global HYBRID_VECTOR_WEIGHT, HYBRID_KEYWORD_WEIGHT
+
+            if 'top_k' in new_settings:
+                TOP_K = new_settings['top_k']
+            if 'score_threshold' in new_settings:
+                SCORE_THRESHOLD = new_settings['score_threshold']
+            if 'max_tokens' in new_settings:
+                MAX_TOKENS = new_settings['max_tokens']
+            if 'temperature' in new_settings:
+                TEMPERATURE = new_settings['temperature']
+            if 'classification_temperature' in new_settings:
+                CLASSIFICATION_TEMPERATURE = new_settings['classification_temperature']
+            if 'llm_model' in new_settings:
+                LLM_MODEL = new_settings['llm_model']
+            if 'enable_query_enhancement' in new_settings:
+                ENABLE_QUERY_ENHANCEMENT = new_settings['enable_query_enhancement']
+            if 'enable_hybrid_search' in new_settings:
+                ENABLE_HYBRID_SEARCH = new_settings['enable_hybrid_search']
+                # Reinitialize BM25 index if hybrid search settings changed
+                if 'enable_hybrid_search' in new_settings and hasattr(self.rag, '_initialize_bm25_index'):
+                    self.rag._initialize_bm25_index()
+            if 'hybrid_vector_weight' in new_settings:
+                HYBRID_VECTOR_WEIGHT = new_settings['hybrid_vector_weight']
+            if 'hybrid_keyword_weight' in new_settings:
+                HYBRID_KEYWORD_WEIGHT = new_settings['hybrid_keyword_weight']
+
+            return True
+        except Exception as e:
+            print(f"Error updating settings: {e}")
+            return False
+
+    def get_current_settings(self) -> Dict[str, Any]:
+        """Get current pipeline settings"""
+        return self.current_settings.copy()
 
     def classify_ticket(self, content: str) -> Dict[str, Any]:
         """Classify a ticket from combined content (subject + body)"""

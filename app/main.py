@@ -325,11 +325,12 @@ else:
 page_mapping = {
     "📊 Dashboard": "📊 Dashboard",
     "💬 Chat Agent": "💬 Chat Agent",
-    "🏠 Home": "🏠 Home"
+    "🏠 Home": "🏠 Home",
+    "⚙️ Settings": "⚙️ Settings"
 }
 
 # Find the index for the selectbox
-page_options = ["🏠 Home", "📊 Dashboard", "💬 Chat Agent"]
+page_options = ["🏠 Home", "📊 Dashboard", "💬 Chat Agent", "⚙️ Settings"]
 try:
     current_index = page_options.index(current_page)
 except ValueError:
@@ -505,8 +506,9 @@ elif page == "💬 Chat Agent":
     </div>
     """, unsafe_allow_html=True)
     
-    # Toggle for analysis view
-    show_analysis = st.checkbox("🔍 Show internal analysis (classification details)", value=True)
+    # Toggle for analysis view - use settings default if available
+    default_show_analysis = st.session_state.get('rag_settings', {}).get('show_analysis', True)
+    show_analysis = st.checkbox("🔍 Show internal analysis (classification details)", value=default_show_analysis)
     
     # Chat messages
     st.markdown("### 💬 Conversation")
@@ -729,6 +731,319 @@ elif page == "💬 Chat Agent":
         
         if st.button("What is the use of atlan cli?", key="sample4"):
             process_sample_question("What is the use of atlan cli?")
+
+elif page == "⚙️ Settings":
+    # Settings page
+    st.markdown("""
+    <div class="main-header">
+        <h1>⚙️ RAG Pipeline Settings</h1>
+        <p>Configure RAG pipeline parameters and UI preferences</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    # Initialize default settings if not in session state
+    if 'rag_settings' not in st.session_state:
+        st.session_state.rag_settings = {
+            # Search Settings
+            'top_k': 5,
+            'score_threshold': 0.3,
+            'hybrid_vector_weight': 1.0,
+            'hybrid_keyword_weight': 0.0,
+
+            # Model Settings
+            'max_tokens': 1000,
+            'temperature': 0.3,
+            'classification_temperature': 0.1,
+            'llm_model': 'gpt-4o',
+
+            # Feature Toggles
+            'enable_query_enhancement': False,
+            'enable_hybrid_search': True,
+
+            # UI Settings
+            'show_analysis': True
+        }
+
+    # Quick help section
+    with st.expander("❓ Settings Help", expanded=False):
+        st.markdown("""
+        **🔍 Search Settings**: Control how many documents are retrieved and similarity thresholds
+        - **TOP_K**: Number of most relevant documents to find
+        - **Score Threshold**: Minimum similarity score to include results
+        - **Search Weights**: Balance between vector (semantic) and keyword (exact) search
+
+        **🤖 Model Settings**: Configure the AI model behavior
+        - **LLM Model**: Which OpenAI model to use for responses
+        - **Temperature**: Higher = more creative, Lower = more consistent
+        - **Max Tokens**: Maximum length of AI responses
+
+        **⚡ Features**: Enable/disable advanced RAG capabilities
+        - **Hybrid Search**: Combine semantic + keyword search for better results
+        - **Query Enhancement**: Use AI to improve search queries
+
+        **🎨 UI Settings**: Customize the interface appearance
+        - **Show Analysis**: Display classification details by default
+        """)
+
+    # Create tabs for different setting categories
+    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search Settings", "🤖 Model Settings", "⚡ Features", "🎨 UI Settings"])
+
+    with tab1:
+        st.markdown("### Search Parameters")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.session_state.rag_settings['top_k'] = st.number_input(
+                "Number of search results (TOP_K)",
+                min_value=1, max_value=20,
+                value=st.session_state.rag_settings['top_k'],
+                help="Number of most relevant documents to retrieve"
+            )
+
+            st.session_state.rag_settings['score_threshold'] = st.slider(
+                "Minimum similarity score threshold",
+                min_value=0.0, max_value=1.0,
+                value=st.session_state.rag_settings['score_threshold'],
+                step=0.1,
+                help="Minimum similarity score for including search results"
+            )
+
+        with col2:
+            st.session_state.rag_settings['hybrid_vector_weight'] = st.slider(
+                "Vector search weight",
+                min_value=0.0, max_value=1.0,
+                value=st.session_state.rag_settings['hybrid_vector_weight'],
+                step=0.1,
+                help="Weight given to vector search results in hybrid mode"
+            )
+
+            st.session_state.rag_settings['hybrid_keyword_weight'] = st.slider(
+                "Keyword search weight",
+                min_value=0.0, max_value=1.0,
+                value=st.session_state.rag_settings['hybrid_keyword_weight'],
+                step=0.1,
+                help="Weight given to keyword search results in hybrid mode"
+            )
+
+    with tab2:
+        st.markdown("### Language Model Configuration")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.session_state.rag_settings['llm_model'] = st.selectbox(
+                "LLM Model",
+                options=['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'],
+                index=['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo'].index(st.session_state.rag_settings['llm_model']),
+                help="OpenAI model for response generation"
+            )
+
+            st.session_state.rag_settings['max_tokens'] = st.number_input(
+                "Maximum response tokens",
+                min_value=100, max_value=4000,
+                value=st.session_state.rag_settings['max_tokens'],
+                step=100,
+                help="Maximum number of tokens in AI responses"
+            )
+
+        with col2:
+            st.session_state.rag_settings['temperature'] = st.slider(
+                "Response temperature",
+                min_value=0.0, max_value=2.0,
+                value=st.session_state.rag_settings['temperature'],
+                step=0.1,
+                help="Controls creativity vs consistency (0=deterministic, 2=very creative)"
+            )
+
+            st.session_state.rag_settings['classification_temperature'] = st.slider(
+                "Classification temperature",
+                min_value=0.0, max_value=1.0,
+                value=st.session_state.rag_settings['classification_temperature'],
+                step=0.1,
+                help="Temperature for ticket classification (lower=more consistent)"
+            )
+
+    with tab3:
+        st.markdown("### Feature Toggles")
+
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.session_state.rag_settings['enable_hybrid_search'] = st.checkbox(
+                "Enable hybrid search",
+                value=st.session_state.rag_settings['enable_hybrid_search'],
+                help="Combine vector and keyword search for better results"
+            )
+
+        with col2:
+            st.session_state.rag_settings['enable_query_enhancement'] = st.checkbox(
+                "Enable query enhancement",
+                value=st.session_state.rag_settings['enable_query_enhancement'],
+                help="Use GPT-4o to enhance user queries before search"
+            )
+
+        # Show current feature status
+        st.markdown("### Current Feature Status")
+        if st.session_state.rag_pipeline:
+            col1, col2 = st.columns(2)
+            with col1:
+                hybrid_status = "✅ Active" if st.session_state.rag_settings['enable_hybrid_search'] else "❌ Disabled"
+                st.info(f"**Hybrid Search**: {hybrid_status}")
+            with col2:
+                enhancement_status = "✅ Active" if st.session_state.rag_settings['enable_query_enhancement'] else "❌ Disabled"
+                st.info(f"**Query Enhancement**: {enhancement_status}")
+
+    with tab4:
+        st.markdown("### User Interface Settings")
+
+        st.session_state.rag_settings['show_analysis'] = st.checkbox(
+            "Show analysis by default in chat",
+            value=st.session_state.rag_settings['show_analysis'],
+            help="Show classification and search details by default in chat interface"
+        )
+
+        st.markdown("### Color Customization")
+        st.info("Color customization for topics, priorities, and sentiments coming soon!")
+
+    # Settings validation warnings
+    st.markdown("---")
+    st.markdown("### ⚠️ Configuration Warnings")
+
+    warnings = []
+    settings = st.session_state.rag_settings
+
+    # Check for potentially problematic configurations
+    if settings['hybrid_vector_weight'] == 0 and settings['hybrid_keyword_weight'] == 0:
+        warnings.append("⚠️ Both vector and keyword weights are 0 - no search results will be returned")
+
+    if settings['enable_hybrid_search'] and settings['hybrid_keyword_weight'] > 0 and settings['hybrid_vector_weight'] == 0:
+        warnings.append("⚠️ Only keyword search enabled - may miss semantic matches")
+
+    if settings['temperature'] > 1.5:
+        warnings.append("⚠️ High temperature (>1.5) may produce inconsistent responses")
+
+    if settings['top_k'] > 10:
+        warnings.append("⚠️ High TOP_K (>10) may include less relevant results and increase token usage")
+
+    if settings['max_tokens'] < 200:
+        warnings.append("⚠️ Low max_tokens (<200) may result in truncated responses")
+
+    if settings['score_threshold'] > 0.8:
+        warnings.append("⚠️ High score threshold (>0.8) may result in no search results")
+
+    if warnings:
+        for warning in warnings:
+            st.warning(warning)
+    else:
+        st.success("✅ Configuration looks good!")
+
+    # Apply settings section
+    st.markdown("---")
+    st.markdown("### Apply Changes")
+
+    col1, col2, col3 = st.columns([2, 1, 1])
+
+    with col1:
+        if st.button("🔄 Apply Settings", type="primary", help="Apply current settings to RAG pipeline"):
+            if st.session_state.rag_pipeline:
+                try:
+                    # Apply settings to the RAG pipeline
+                    success = st.session_state.rag_pipeline.update_settings(st.session_state.rag_settings)
+                    if success:
+                        st.success("✅ Settings applied successfully!")
+                        st.info("💡 Settings are now active for new queries and responses.")
+                    else:
+                        st.error("❌ Error applying some settings. Check console for details.")
+                except Exception as e:
+                    st.error(f"❌ Error applying settings: {e}")
+            else:
+                st.warning("RAG pipeline not initialized")
+
+    with col2:
+        if st.button("↩️ Reset to Defaults"):
+            st.session_state.rag_settings = {
+                'top_k': 5,
+                'score_threshold': 0.3,
+                'hybrid_vector_weight': 1.0,
+                'hybrid_keyword_weight': 0.0,
+                'max_tokens': 1000,
+                'temperature': 0.3,
+                'classification_temperature': 0.1,
+                'llm_model': 'gpt-4o',
+                'enable_query_enhancement': False,
+                'enable_hybrid_search': True,
+                'show_analysis': True
+            }
+            st.success("🔄 Settings reset to defaults")
+            st.rerun()
+
+    with col3:
+        if st.button("📥 Export Settings"):
+            settings_json = json.dumps(st.session_state.rag_settings, indent=2)
+            st.download_button(
+                label="💾 Download JSON",
+                data=settings_json,
+                file_name="rag_settings.json",
+                mime="application/json"
+            )
+
+    # Current settings display
+    st.markdown("---")
+    st.markdown("### Settings Overview")
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.markdown("#### 📝 Configured Settings (in UI)")
+        with st.expander("View UI settings", expanded=False):
+            st.json(st.session_state.rag_settings)
+
+    with col2:
+        st.markdown("#### ⚡ Active Pipeline Settings")
+        if st.session_state.rag_pipeline:
+            try:
+                active_settings = st.session_state.rag_pipeline.get_current_settings()
+                with st.expander("View active settings", expanded=False):
+                    st.json(active_settings)
+            except Exception as e:
+                st.error(f"Could not retrieve active settings: {e}")
+        else:
+            st.warning("Pipeline not initialized")
+
+    # Add import settings functionality
+    st.markdown("---")
+    st.markdown("### Import Settings")
+
+    uploaded_file = st.file_uploader(
+        "📁 Upload settings JSON file",
+        type=['json'],
+        help="Upload a previously exported settings file"
+    )
+
+    if uploaded_file is not None:
+        try:
+            settings_data = json.loads(uploaded_file.read().decode('utf-8'))
+
+            # Validate settings structure
+            required_keys = {'top_k', 'score_threshold', 'temperature', 'llm_model'}
+            if required_keys.issubset(settings_data.keys()):
+                if st.button("🔄 Import and Apply Settings"):
+                    st.session_state.rag_settings.update(settings_data)
+                    if st.session_state.rag_pipeline:
+                        success = st.session_state.rag_pipeline.update_settings(settings_data)
+                        if success:
+                            st.success("✅ Settings imported and applied successfully!")
+                        else:
+                            st.error("❌ Settings imported but failed to apply to pipeline")
+                    else:
+                        st.success("✅ Settings imported! Apply them when pipeline is ready.")
+                    st.rerun()
+            else:
+                st.error("❌ Invalid settings file format. Missing required keys.")
+        except json.JSONDecodeError:
+            st.error("❌ Invalid JSON file format")
+        except Exception as e:
+            st.error(f"❌ Error reading settings file: {e}")
 
 # Footer
 st.markdown("---")
