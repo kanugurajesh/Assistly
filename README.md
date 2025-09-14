@@ -1,6 +1,6 @@
 # Atlan Customer Support Copilot
 
-An AI-powered customer support system that automatically classifies tickets and provides intelligent responses using Retrieval-Augmented Generation (RAG) with Atlan's documentation.
+An advanced AI-powered customer support system that automatically classifies tickets and provides intelligent responses using state-of-the-art Retrieval-Augmented Generation (RAG) with hybrid search, query enhancement, and optimized chunking strategies.
 
 ## 🌟 Features
 
@@ -9,8 +9,19 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **Interactive AI Agent**: Real-time chat interface for new ticket submission and response
 - **Conversational Memory**: Context-aware conversations using LangChain ChatMessageHistory with in-memory storage
 - **Smart Classification**: Topic tags, sentiment analysis, and priority assignment
-- **RAG Responses**: Intelligent answers powered by Atlan's documentation
+- **Advanced RAG Responses**: Intelligent answers powered by hybrid search and enhanced retrieval
 - **Source Citations**: All responses include links to relevant documentation
+- **Search Transparency**: Real-time indicators showing search methods used (vector, keyword, or hybrid)
+- **Dynamic Settings Management**: Comprehensive settings page for real-time pipeline configuration
+
+### Advanced RAG Features
+- **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
+- **Query Enhancement**: GPT-4o powered query expansion for technical terms (configurable)
+- **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
+- **Smart Reranking**: Weighted merging of vector and keyword search results (70/30 split)
+- **Quality Metrics**: Chunk quality indicators including code detection and header analysis
+- **Real-time Configuration**: Dynamic settings updates without application restart
+- **Settings Import/Export**: JSON-based configuration backup and sharing
 
 ### Classification Schema
 - **Topic Tags**: How-to, Product, Connector, Lineage, API/SDK, SSO, Glossary, Best practices, Sensitive data
@@ -26,170 +37,231 @@ An AI-powered customer support system that automatically classifies tickets and 
 - **Data Persistence**: Web scraping is expensive and rate-limited. MongoDB storage allows reprocessing embeddings without re-scraping.
 - **Deployment Flexibility**: App folder contains only deployment dependencies, enabling clean Streamlit Cloud deployment.
 - **Development Efficiency**: Can iterate on AI logic without re-running expensive data collection.
+- **A/B Testing**: Separate collections enable comparison between basic and enhanced RAG implementations.
 
-**Trade-off**: Increased complexity vs. reliability and cost efficiency.
+**Trade-off**: Increased complexity vs. reliability, cost efficiency, and experimentation capability.
 
-### 2. Technology Stack Choices
+### 2. Advanced Technology Stack Choices
 
-#### Firecrawl vs. Custom Scraping
-**Decision**: Firecrawl API for web scraping instead of BeautifulSoup/Scrapy.
+#### Hybrid Search: Vector + BM25 vs. Pure Vector Search
+**Decision**: Implement hybrid search combining vector similarity and BM25 keyword search.
 
 **Why**:
-- **Content Quality**: Advanced content extraction handles JavaScript, dynamic content, and complex layouts.
-- **Rate Limiting**: Built-in respectful crawling with automatic delays.
-- **Maintenance**: No need to maintain scraping logic for different website structures.
+- **Technical Term Precision**: BM25 excels at exact matches for technical terms, APIs, and product names.
+- **Semantic Understanding**: Vector search captures conceptual relationships and context.
+- **Complementary Strengths**: Vector search for "how to authenticate" + BM25 for "SAML SSO" = comprehensive coverage.
+- **Fallback Strategy**: Graceful degradation to vector-only if BM25 fails.
 
-**Trade-off**: API cost vs. development/maintenance time and content quality.
+**Trade-off**: System complexity and processing overhead vs. significantly improved retrieval quality for technical documentation.
+
+#### Query Enhancement: GPT-4o Expansion vs. Direct Search
+**Decision**: Optional GPT-4o query enhancement with configurable toggle.
+
+**Why**:
+- **Technical Term Expansion**: "SSO" → "SAML single sign-on authentication setup"
+- **Context Enrichment**: "API rate limits" → "REST API rate limiting configuration and best practices"
+- **Acronym Resolution**: Critical for technical documentation where acronyms are prevalent.
+- **Cost Control**: Configurable feature allows optimization for different use cases.
+
+**Trade-off**: Additional API costs and latency vs. dramatically improved retrieval for technical queries.
+
+#### Enhanced Chunking: Code-Aware vs. Simple Character Splitting
+**Decision**: Advanced recursive splitting with code block preservation and quality metrics.
+
+**Why**:
+- **Code Integrity**: Preserves ```code blocks``` as single units to maintain functional examples.
+- **Structure Awareness**: Respects markdown headers, lists, and procedures.
+- **Quality Tracking**: Metadata enables optimization and debugging of retrieval quality.
+- **Context Preservation**: Smart boundaries prevent splitting related instructions.
+
+**Trade-off**: Processing complexity and storage overhead vs. significantly better content quality and retrieval accuracy.
+
+### 3. Feature Toggle Architecture
+**Decision**: Configurable enhancement toggles rather than fixed implementation.
+
+**Why**:
+- **Deployment Flexibility**: Different environments can optimize for cost vs. quality.
+- **Performance Tuning**: Disable expensive features for high-volume scenarios.
+- **Gradual Rollout**: Test advanced features incrementally in production.
+- **User Choice**: Let users balance speed vs. comprehensive results.
+
+**Trade-off**: Configuration complexity vs. deployment flexibility and performance optimization.
+
+### 4. Smart Reranking Strategy
+**Decision**: 70/30 weighted fusion of vector and BM25 results with intelligent deduplication.
+
+**Why**:
+- **Balanced Relevance**: Vector search weighted higher for semantic understanding.
+- **Exact Match Boost**: BM25 results get significant weight for technical precision.
+- **Deduplication**: Documents found by both methods receive relevance boost.
+- **Empirical Optimization**: 70/30 split tested for optimal balance in technical documentation.
+
+**Trade-off**: Algorithm complexity vs. superior result ranking and relevance.
+
+### 5. Dual Collection Strategy
+**Decision**: Separate "enhanced" and "standard" Qdrant collections for A/B testing.
+
+**Why**:
+- **Performance Comparison**: Direct measurement of advanced features' impact.
+- **Risk Mitigation**: Fallback to standard collection if enhanced features fail.
+- **Feature Validation**: Quantitative assessment of enhancement value.
+- **Gradual Migration**: Safe transition from basic to advanced implementations.
+
+**Trade-off**: Storage overhead and maintenance complexity vs. risk reduction and optimization capability.
+
+### 6. Technology Stack for Advanced RAG
 
 #### MongoDB + Qdrant vs. Single Database
-**Decision**: Dual storage (MongoDB for documents, Qdrant for vectors) vs. single vector database.
+**Decision**: Dual storage with enhanced Qdrant collections for hybrid search.
 
 **Why**:
 - **Data Integrity**: MongoDB preserves original content for reprocessing and debugging.
-- **Performance**: Qdrant specializes in vector similarity search with superior performance.
-- **Flexibility**: Can change embedding models without losing original documents.
+- **Hybrid Performance**: Qdrant's vector capabilities + in-memory BM25 for keyword search.
+- **Collection Management**: Separate enhanced collections for advanced features.
 - **Backup Strategy**: Multiple data preservation layers prevent data loss.
 
-**Trade-off**: Infrastructure complexity vs. performance and data safety.
+**Trade-off**: Infrastructure complexity vs. performance, flexibility, and data safety.
 
 #### OpenAI GPT-4o vs. Local Models
-**Decision**: OpenAI GPT-4o for classification and response generation.
+**Decision**: OpenAI GPT-4o for classification, response generation, and query enhancement.
 
 **Why**:
-- **Quality**: Superior reasoning for complex ticket classification and response generation.
+- **Quality**: Superior reasoning for complex ticket classification and technical query expansion.
 - **JSON Reliability**: Consistent structured output for automated processing.
+- **Context Window**: Large context enables conversation memory and comprehensive responses.
 - **Development Speed**: No model training, fine-tuning, or hosting infrastructure needed.
-- **Context Window**: Large context enables conversational memory integration.
 
-**Trade-off**: Ongoing API costs vs. response quality and development speed.
+**Trade-off**: Ongoing API costs vs. response quality, development speed, and advanced capabilities.
 
-#### FastEmbed BGE-small vs. OpenAI Embeddings
-**Decision**: BAAI/bge-small-en-v1.5 (384-dim) via FastEmbed for document embeddings.
+#### FastEmbed BGE-small + rank-bm25 vs. Single Approach
+**Decision**: Hybrid embedding strategy with local FastEmbed and in-memory BM25.
 
 **Why**:
 - **Cost Efficiency**: Free local embeddings vs. OpenAI embedding API costs.
-- **Performance**: 384 dimensions balance quality and storage/compute efficiency.
-- **Independence**: No API dependency for vector generation enables batch processing.
 - **Privacy**: Document content never leaves local environment.
+- **Performance**: 384-dim embeddings balance quality with speed.
+- **Hybrid Capability**: BM25 enables exact term matching for technical precision.
 
-**Trade-off**: Slightly lower embedding quality vs. significant cost savings and privacy.
-
-### 3. Memory Management Strategy
-**Decision**: In-memory conversational history with LangChain vs. database-backed sessions.
-
-**Why**:
-- **Simplicity**: No additional database dependencies or infrastructure.
-- **Performance**: RAM access for conversation context is instantaneous.
-- **Session Isolation**: Natural cleanup when application restarts.
-- **Development Speed**: No database schema design or migration concerns.
-
-**Trade-off**: Memory lost on restart vs. infrastructure simplicity and performance.
-
-### 4. User Interface Choice
-**Decision**: Streamlit vs. React/Vue.js web application.
-
-**Why**:
-- **Rapid Prototyping**: Python-native UI development matches AI pipeline language.
-- **Integrated Deployment**: Streamlit Cloud provides seamless hosting for Python apps.
-- **Developer Experience**: Single language for entire application stack.
-- **Built-in Components**: Chat interfaces, file uploads, and data visualization components.
-
-**Trade-off**: Limited UI customization vs. development speed and deployment simplicity.
-
-### 5. Response Generation Strategy
-**Decision**: Hybrid routing (RAG for some topics, simple routing for others).
-
-**Why**:
-- **Resource Optimization**: RAG processing only for topics where documentation exists.
-- **Response Quality**: Technical topics get detailed, sourced answers.
-- **Fallback Strategy**: Non-technical topics route to appropriate human teams.
-- **Cost Control**: Expensive vector searches and LLM calls only when beneficial.
-
-**Trade-off**: Complex logic vs. cost efficiency and appropriate response types.
-
-### 6. Data Chunking Strategy
-**Decision**: 1200 token chunks with 200 overlap using recursive character splitting.
-
-**Why**:
-- **Context Preservation**: Large chunks maintain semantic coherence.
-- **Overlap Benefits**: 200-token overlap prevents information loss at boundaries.
-- **Markdown Awareness**: Preserves code blocks, tables, and structured content.
-- **Token Optimization**: Fits within context windows while maximizing information density.
-
-**Trade-off**: Storage size vs. semantic quality and context preservation.
+**Trade-off**: Implementation complexity vs. cost savings, privacy, and enhanced search capabilities.
 
 ## 🏗️ Architecture
 
-### Enhanced Data Pipeline & System Architecture
+### Complete System Architecture with Component Interactions
 
 ```
-                        🌐 DATA COLLECTION LAYER
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                    Firecrawl Web Scraper                        │
-    │  ┌─────────────────┐    ┌─────────────────┐    Rate Limiting    │
-    │  │ docs.atlan.com  │    │developer.atlan.c│   & Content       │
-    │  │                 │    │om               │   Quality Control   │
-    │  └─────────────────┘    └─────────────────┘                     │
-    └──────────────────────┬──────────────────────────────────────────┘
-                           │ scrape.py
-                           ▼
-                🗄️ PERSISTENT STORAGE LAYER
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                      MongoDB Atlas                              │
-    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-    │  │   Raw Content   │  │    Metadata     │  │  Backup Files   │  │
-    │  │   • HTML Text   │  │  • URLs         │  │  • JSON Export  │  │
-    │  │   • Structure   │  │  • Timestamps   │  │  • Recovery     │  │
-    │  │   • Clean Text  │  │  • Source Info  │  │    Data         │  │
-    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-    └──────────────────────┬──────────────────────────────────────────┘
-                           │ qdrant_ingestion.py
-                           ▼
-                  🧠 VECTOR PROCESSING LAYER
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                    Text Processing Pipeline                     │
-    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-    │  │   Chunking      │  │   Embeddings    │  │ Vector Storage  │  │
-    │  │ • 1200 tokens   │→ │ • BGE-small     │→ │ • Qdrant Cloud  │  │
-    │  │ • 200 overlap   │  │ • 384 dims      │  │ • Similarity    │  │
-    │  │ • Markdown      │  │ • Local Gen     │  │ • Collections   │  │
-    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-    └──────────────────────────────────┬──────────────────────────────┘
-                                       │
-                                       ▼
-                        🤖 AI PROCESSING LAYER
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                      OpenAI GPT-4o                              │
-    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-    │  │Classification   │  │  RAG Response   │  │ Memory Context  │  │
-    │  │• Topic Tags     │  │ • Doc Retrieval │  │• Session State  │  │
-    │  │• Sentiment      │  │ • Answer Gen    │  │• Chat History   │  │
-    │  │• Priority       │  │ • Citations     │  │• Conversation   │  │
-    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-    └──────────────────────┬──────────────────────┬────────────────── ┘
-                           │                      │
-                           ▼                      ▼
-                       🖥️ APPLICATION LAYER (main.py)
-    ┌─────────────────────────────────────────────────────────────────┐
-    │                    Streamlit Web Application                    │
-    │  ┌─────────────────┐  ┌─────────────────┐  ┌─────────────────┐  │
-    │  │   Dashboard     │  │   Chat Agent    │  │   Analytics     │  │
-    │  │ • Bulk Process  │  │ • Real-time     │  │ • Performance   │  │
-    │  │ • 30+ Tickets   │  │ • Memory        │  │ • Metrics       │  │
-    │  │ • Statistics    │  │ • Citations     │  │ • Usage Stats   │  │
-    │  └─────────────────┘  └─────────────────┘  └─────────────────┘  │
-    └─────────────────────────────────────────────────────────────────┘
+                           🌐 USER INTERFACE LAYER
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                    👤 User Browser Session                                 │
+    │  ┌─────────────────────────────────────────────────────────────────────┐   │
+    │  │  📊 Dashboard   💬 Chat Agent   ⚙️ Settings   📈 Analytics Page   │   │
+    │  │  • Bulk Class.  • Real-time Chat • Dynamic Config • Performance    │   │
+    │  │  • 30+ Tickets  • Memory Context  • Import/Export  • Search Stats   │   │
+    │  │  • Statistics   • Source Cites    • Validation    • Usage Metrics   │   │
+    │  └─────────────────────────────────────────────────────────────────────┘   │
+    └─────────────────────────┬───────────────────────────────────────────────────┘
+                             │ HTTP Requests
+                             ▼
+                   🖥️ STREAMLIT APPLICATION LAYER
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                         main.py (Port 8501)                                │
+    │  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────────────┐   │
+    │  │   UI Controls   │   │  Session State  │   │    Event Handlers       │   │
+    │  │ • Input Forms   │   │ • User Session  │   │  • Button Clicks        │   │
+    │  │ • Display Logic │   │ • Memory Store  │   │  • Text Input           │   │
+    │  │ • File Uploads  │   │ • Chat History  │   │  • Page Navigation      │   │
+    │  └─────────────────┘   └─────────────────┘   └─────────────────────────┘   │
+    └─────────────────────────┬───────────────────────────────────────────────────┘
+                             │ Function Calls
+                             ▼
+                   🧠 AI PROCESSING LAYER (rag_pipeline.py)
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                      Advanced RAG Pipeline Engine                          │
+    │  ┌─────────────────┐   ┌─────────────────┐   ┌─────────────────────────┐   │
+    │  │Classification   │   │  Query Pipeline │   │   Response Generator    │   │
+    │  │ • Topic Tags    │   │ • Enhancement   │   │ • Template Rendering   │   │
+    │  │ • Sentiment     │   │ • Hybrid Search │   │ • Citation Assembly     │   │
+    │  │ • Priority      │   │ • Smart Rerank  │   │ • Context Integration   │   │
+    │  └─────────────────┘   └─────────────────┘   └─────────────────────────┘   │
+    └──────┬──────────────────┬───────────────────────────┬──────────────────────┘
+           │                 │                           │
+           ▼                 ▼                           ▼
+        🤖 EXTERNAL AI APIs                🗄️ DATA STORAGE LAYER
+    ┌─────────────────┐     ┌─────────────────────────────────────────────────────┐
+    │   OpenAI GPT-4o │     │                 Database Services                   │
+    │ ┌─────────────┐ │     │  ┌─────────────────┐   ┌─────────────────────────┐ │
+    │ │Classification│ │────▶│  │   MongoDB Atlas │   │     Qdrant Cloud        │ │
+    │ │• JSON Output │ │     │  │ ┌─────────────┐ │   │ ┌─────────────────────┐ │ │
+    │ │• Structured │ │     │  │ │Raw Documents│ │   │ │Vector Collections   │ │ │
+    │ └─────────────┘ │     │  │ │• HTML Text  │ │   │ │• atlan_docs_enhanced│ │ │
+    │ ┌─────────────┐ │     │  │ │• Metadata   │ │   │ │• Embeddings (384d)  │ │ │
+    │ │Query Enhance│ │     │  │ │• Timestamps │ │   │ │• Payloads           │ │ │
+    │ │• Term Expand│ │     │  │ └─────────────┘ │   │ └─────────────────────┘ │ │
+    │ │• Tech Terms │ │     │  │ ┌─────────────┐ │   │ ┌─────────────────────┐ │ │
+    │ └─────────────┘ │     │  │ │Backup Files │ │   │ │In-Memory BM25 Index│ │ │
+    │ ┌─────────────┐ │     │  │ │• JSON Dumps │ │   │ │• Keyword Search     │ │ │
+    │ │RAG Response │ │     │  │ │• Recovery   │ │   │ │• TF-IDF Scoring     │ │ │
+    │ │• Contextual │ │     │  │ └─────────────┘ │   │ │• rank-bm25 Library  │ │ │
+    │ │• Cited      │ │     │  └─────────────────┘   │ └─────────────────────┘ │ │
+    │ └─────────────┘ │     └──────────┬─────────────────────┬──────────────────┘
+    └─────────────────┘                │                    │
+           ▲                           │                    │
+           │ HTTPS/REST API             │                    │
+           │                           ▼                    ▼
+                              📝 PIPELINE SCRIPTS LAYER
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                        Data Processing Pipeline                            │
+    │  ┌─────────────────┐   ┌─────────────────────────────────────────────────┐ │
+    │  │   scrape.py     │   │              qdrant_ingestion.py               │ │
+    │  │ ┌─────────────┐ │   │ ┌─────────────┐   ┌─────────────┐              │ │
+    │  │ │Firecrawl API│ │   │ │Text Chunking│   │FastEmbed BGE│              │ │
+    │  │ │• Rate Limits│ │   │ │• 1200 tokens│   │• Local Gen  │              │ │
+    │  │ │• Content    │ │   │ │• 200 overlap│   │• 384 dims   │              │ │
+    │  │ │  Extraction │ │   │ │• Code Aware │   │• Privacy    │              │ │
+    │  │ └─────────────┘ │   │ └─────────────┘   └─────────────┘              │ │
+    │  │ ┌─────────────┐ │   │ ┌─────────────┐   ┌─────────────┐              │ │
+    │  │ │MongoDB Save │ │   │ │Quality      │   │Qdrant Upload│              │ │
+    │  │ │• Documents  │ │   │ │Metrics      │   │• Collections│              │ │
+    │  │ │• Metadata   │ │   │ │• Code Detect│   │• Vectors    │              │ │
+    │  │ │• Backup     │ │   │ │• Headers    │   │• Payloads   │              │ │
+    │  │ └─────────────┘ │   │ └─────────────┘   └─────────────┘              │ │
+    │  └─────────────────┘   └─────────────────────────────────────────────────┘ │
+    └─────────────────────────────────────────────────────────────────────────────┘
+           ▲                                       ▲
+           │ Manual Execution                      │ Manual Execution
+           │                                       │
+                              🌐 DATA SOURCES
+    ┌─────────────────────────────────────────────────────────────────────────────┐
+    │                           External Documentation                           │
+    │  ┌─────────────────────────────────────┐  ┌───────────────────────────────┐ │
+    │  │         docs.atlan.com              │  │     developer.atlan.com       │ │
+    │  │ • Product Documentation (~700 pages)│  │ • API Documentation (~300)    │ │
+    │  │ • User Guides                       │  │ • SDK References              │ │
+    │  │ • Feature Explanations              │  │ • Code Examples               │ │
+    │  │ • Best Practices                    │  │ • Technical Specifications    │ │
+    │  └─────────────────────────────────────┘  └───────────────────────────────┘ │
+    └─────────────────────────────────────────────────────────────────────────────┘
 
-        🔄 DATA FLOW DIRECTIONS:
-        scrape.py        → MongoDB (Document Storage)
-        qdrant_ingestion.py → Qdrant (Vector Processing)
-        main.py          → All Services (Real-time Queries)
+            🔄 KEY INTERACTION FLOWS:
 
-        ⚡ ERROR HANDLING & RECOVERY:
-        • MongoDB backup files for data recovery
-        • Incremental processing to handle failures
-        • Rate limiting and retry logic
-        • Graceful degradation for service outages
+            📥 DATA PIPELINE FLOW:
+            docs.atlan.com → Firecrawl API → scrape.py → MongoDB → qdrant_ingestion.py → Qdrant
+
+            🔍 REAL-TIME SEARCH FLOW:
+            User Query → Query Enhancement (GPT-4o) → Hybrid Search (Vector+BM25) →
+            Smart Reranking → Context Assembly → Response Generation (GPT-4o) → User
+
+            💬 CHAT INTERACTION FLOW:
+            User Input → Streamlit UI → rag_pipeline.py → Classification (GPT-4o) →
+            RAG/Routing Decision → Search & Generate → Display with Citations
+
+            ⚙️ CONFIGURATION FLOW:
+            .env Variables → Feature Toggles → Pipeline Behavior → Performance Optimization
+
+            🔒 ERROR HANDLING & RECOVERY:
+            • MongoDB Backup Files for Data Recovery
+            • Graceful Degradation: Hybrid → Vector-only → Routing
+            • Rate Limiting with Exponential Backoff
+            • Session State Management for UI Persistence
 ```
 
 ### System Components
@@ -201,10 +273,11 @@ An AI-powered customer support system that automatically classifies tickets and 
 ## 🛠️ Tech Stack
 
 ### AI/ML
-- **OpenAI GPT-4o**: LLM for classification and response generation
+- **OpenAI GPT-4o**: LLM for classification, response generation, and query enhancement
 - **FastEmbed BAAI/bge-small-en-v1.5**: Vector embeddings for semantic search (384 dimensions)
-- **Qdrant**: Vector database for RAG retrieval
-- **LangChain**: Text processing, chunking, and conversational memory management
+- **Qdrant Cloud**: Vector database with hybrid search capabilities
+- **rank-bm25**: BM25 algorithm for keyword search and hybrid retrieval
+- **LangChain**: Enhanced text processing with advanced chunking strategies
 
 ### Application
 - **Streamlit**: Interactive web application framework
@@ -301,15 +374,18 @@ python scrape.py https://your-docs.com --limit 500 --collection custom_docs
 ```
 *All scraped content automatically stored in MongoDB with metadata and backup files.*
 
-**Step 2: Vector Database Ingestion**
+**Step 2: Enhanced Vector Database Ingestion**
 ```bash
-# Basic ingestion (processes all documents)
-python qdrant_ingestion.py
+# Create enhanced collection with advanced chunking
+python qdrant_ingestion.py --qdrant-collection "atlan_docs_enhanced" --recreate
 
-# Advanced ingestion with filtering (see Advanced Pipeline Options below)
-python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+# Advanced ingestion with source filtering
+python qdrant_ingestion.py --source-url "https://docs.atlan.com" --qdrant-collection "atlan_docs_enhanced"
+
+# Incremental updates (recommended for production)
+python qdrant_ingestion.py --qdrant-collection "atlan_docs_enhanced"
 ```
-*Chunks documents using LangChain, creates embeddings with FastEmbed BGE-small, stores in Qdrant.*
+*Enhanced chunking preserves code blocks, creates quality metrics, and generates embeddings with FastEmbed BGE-small for hybrid search.*
 
 **Note**: The application comes with pre-processed data, so this step is only needed for custom datasets or updates. For advanced configuration options, see the "Advanced Pipeline Options" section below.
 
@@ -517,28 +593,72 @@ AI: "Yes, for your Snowflake-Atlan integration, consider..." [builds on conversa
 - **Session Management**: UUID-based session identification with Streamlit session state
 - **Context Integration**: Previous conversation included in RAG prompts for better responses
 
-## 🧠 AI Pipeline Details
+### Settings Page
+1. Navigate to "⚙️ Settings" in the sidebar
+2. **Collection Management**: Select from available Qdrant collections with real-time discovery
+3. **Collection Information**: View collection points, vector size, and distance metrics
+4. Configure search parameters (TOP_K, score thresholds, hybrid weights)
+5. Adjust model settings (temperature, max tokens, model selection)
+6. Toggle features (hybrid search, query enhancement)
+7. Customize UI preferences (show analysis default)
+8. Apply settings in real-time without restarting the application
+9. Export/import settings configurations as JSON files
+10. View configuration warnings for potentially problematic settings
+11. **Troubleshooting**: Built-in connection diagnostics and collection validation
 
-### Classification Logic
+## 🧠 Advanced AI Pipeline Details
+
+### Enhanced Classification Logic
 The system analyzes tickets using structured prompts to generate:
-1. **Topic Tags**: Multiple relevant categories
-2. **Sentiment**: Emotional tone analysis
-3. **Priority**: Business impact assessment
+1. **Topic Tags**: Multiple relevant categories with high accuracy
+2. **Sentiment**: Emotional tone analysis for prioritization
+3. **Priority**: Business impact assessment with context awareness
 
-### RAG Response Logic
-- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using documentation with conversation context
-- **Routing Topics**: Connector, Lineage, Glossary, Sensitive data → Route to appropriate teams
-- **Memory Integration**: Previous conversation history included in prompts for context-aware responses
+### Advanced RAG Response Logic
+- **RAG Topics**: How-to, Product, Best practices, API/SDK, SSO → Generate answers using hybrid search
+- **Routing Topics**: Connector, Lineage, Glossary, Sensitive data → Route to specialized teams
+- **Query Processing**: Optional GPT-4o enhancement expands technical terms
+- **Search Strategy**: Hybrid vector + keyword search with smart reranking
+- **Response Generation**: Context-aware answers with source attribution
 
-### Chunking Strategy
+### Advanced RAG Pipeline Components
+
+#### 1. Query Enhancement Pipeline (Optional)
+- **Input**: Raw user query (e.g., "How to setup SSO?")
+- **Processing**: GPT-4o expands technical terms and acronyms
+- **Output**: Enhanced query (e.g., "How to configure SAML single sign-on authentication in Atlan?")
+- **Benefits**: Better retrieval for technical documentation
+- **Toggle**: Configurable via `ENABLE_QUERY_ENHANCEMENT`
+
+#### 2. Hybrid Search System
+- **Vector Search**: Semantic similarity using FastEmbed BGE-small (384 dim)
+- **Keyword Search**: BM25 algorithm for exact term matching
+- **Fusion Strategy**: 70/30 weighted combination with smart deduplication
+- **Reranking**: Boosts documents found by both methods
+- **Fallback**: Graceful degradation to vector-only if BM25 fails
+
+#### 3. Enhanced Chunking Strategy
+- **Structure Preservation**: Special handling for code blocks and headers
+- **Smart Separators**: 15+ separator types for optimal boundaries
+- **Quality Metrics**: Tracks code presence, headers, and word count
+- **Metadata Enhancement**: Chunk-level quality indicators
+- **Context Maintenance**: Preserves related content together
+
+### Enhanced Chunking Strategy
 - **Chunk Size**: 1200 tokens with 200 token overlap
-- **Method**: Recursive character splitting with markdown awareness
-- **Preservation**: Code blocks, tables, and lists as single units
+- **Method**: Advanced recursive character splitting with enhanced separators
+- **Code Preservation**: Special handling for ``` code blocks and indented code
+- **Structure Awareness**: Preserves headers, lists, procedures, and markdown formatting
+- **Quality Metrics**: Tracks code blocks, headers, word count, and chunk quality scores
+- **Smart Boundaries**: 15+ separator types for optimal semantic chunking
 
-### Vector Search
-- **Embedding Model**: BAAI/bge-small-en-v1.5 (384 dimensions)
-- **Search Strategy**: Cosine similarity with score threshold 0.3
-- **Top-K Retrieval**: 5 most relevant chunks
+### Hybrid Search System
+- **Vector Search**: BAAI/bge-small-en-v1.5 (384 dimensions) with cosine similarity
+- **Keyword Search**: BM25 algorithm for exact term matching
+- **Search Fusion**: 70/30 weighted combination of vector and keyword results
+- **Smart Reranking**: Deduplication and relevance scoring with boost for multi-method matches
+- **Score Threshold**: 0.3 minimum similarity for vector results
+- **Top-K Retrieval**: 5 most relevant chunks from hybrid results
 
 ### Conversational Memory System
 - **Memory Backend**: LangChain's `InMemoryChatMessageHistory` for pure RAM storage
@@ -554,11 +674,33 @@ The system analyzes tickets using structured prompts to generate:
 ## 🔧 Configuration Options
 
 ### Environment Variables (app/.env)
-- `OPENAI_API_KEY`: Required for GPT-4o classification and response generation
-- `QDRANT_URI`: Qdrant Cloud vector database endpoint
+- `OPENAI_API_KEY`: Required for GPT-4o classification, response generation, and query enhancement
+- `QDRANT_URI`: Qdrant Cloud vector database endpoint for hybrid search
 - `QDRANT_API_KEY`: Authentication for Qdrant Cloud instance
 - `MONGODB_URI`: MongoDB Atlas connection string for document storage
 - `FIRECRAWL_API_KEY`: Firecrawl API key for web scraping (data pipeline only)
+
+### Advanced RAG Configuration (app/rag_pipeline.py)
+- `ENABLE_QUERY_ENHANCEMENT`: Toggle GPT-4o query expansion (default: False)
+- `ENABLE_HYBRID_SEARCH`: Toggle vector + BM25 hybrid search (default: True)
+- `HYBRID_VECTOR_WEIGHT`: Weight for vector search results (default: 1.0)
+- `HYBRID_KEYWORD_WEIGHT`: Weight for BM25 keyword results (default: 0.0)
+- `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs_enhanced")
+- `SCORE_THRESHOLD`: Minimum similarity threshold (default: 0.3)
+- `TOP_K`: Number of search results to retrieve (default: 5)
+- `MAX_TOKENS`: Maximum response length (default: 1000)
+- `TEMPERATURE`: Response creativity level (default: 0.3)
+- `LLM_MODEL`: OpenAI model for responses (default: "gpt-4o")
+
+### Dynamic Settings Management
+- **Real-time Updates**: All configuration changes apply immediately without restart
+- **Collection Management**: Dynamic Qdrant collection discovery and switching
+- **Settings Validation**: Built-in warnings for potentially problematic configurations
+- **Import/Export**: JSON-based settings backup and sharing capabilities
+- **UI Integration**: Settings page with tabbed interface for different parameter categories
+- **Configuration Persistence**: Settings stored in session state and applied to pipeline
+- **Connection Diagnostics**: Real-time collection validation and troubleshooting
+- **Fallback Handling**: Graceful degradation when settings cause issues
 
 ### Data Pipeline Configuration
 - **Scraping Parameters**: Use `--limit` and `--collection` options in scrape.py for custom URLs and crawl limits
@@ -622,24 +764,30 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 - **Response Templates**: Modify RAG and routing responses in app/main.py
 - **UI Styling**: Update custom CSS in app/main.py for branding
 
-## 📊 Performance Metrics
+## 📊 Performance Metrics & Advanced Features
 
-### Data Pipeline Efficiency
-- **Firecrawl Scraping**: Automated content extraction with metadata preservation
-- **MongoDB Storage**: Reliable document persistence with backup capabilities
-- **Vector Ingestion**: Efficient batch processing of embeddings to Qdrant
+### Enhanced Data Pipeline Efficiency
+- **Smart Scraping**: Firecrawl with automated content extraction and metadata preservation
+- **Persistent Storage**: MongoDB with backup capabilities and incremental processing
+- **Advanced Vector Ingestion**: Batch processing with enhanced chunking and quality metrics
+- **Hybrid Search Performance**: Combined vector + keyword search with intelligent reranking
 
-### Response Quality Measures
+### Advanced Response Quality Measures
+- **Multi-Method Retrieval**: Hybrid search combines semantic and keyword matching
+- **Query Enhancement**: GPT-4o expands technical terms for better retrieval (configurable)
+- **Smart Reranking**: 70/30 weighted fusion of vector and BM25 results
 - **Source Attribution**: All RAG responses include original documentation URLs
-- **Relevance Scoring**: Vector similarity scores for retrieved chunks (threshold 0.3)
-- **Classification Consistency**: Structured JSON output with validation
-- **Context Quality**: 5 most relevant chunks retrieved for comprehensive answers
+- **Relevance Scoring**: Vector similarity + BM25 scoring with threshold 0.3
+- **Context Quality**: Top-5 chunks from hybrid results for comprehensive answers
+- **Search Transparency**: Real-time indicators showing search methods used
 
-### Scalability Features
-- **Persistent Storage**: MongoDB enables data reprocessing without re-scraping
-- **Vector Database**: Qdrant Cloud provides fast similarity search at scale
-- **Rate Limiting**: API-friendly request handling for OpenAI and Firecrawl
-- **Error Handling**: Graceful fallbacks and retries across the pipeline
+### Advanced Scalability Features
+- **Feature Toggles**: Configurable query enhancement and hybrid search
+- **Collection Management**: Separate enhanced and standard collections
+- **Incremental Processing**: Skip already processed documents for efficiency
+- **Quality Metrics**: Chunk-level quality indicators (code detection, headers, word count)
+- **Error Resilience**: Graceful fallbacks for all advanced features
+- **Performance Monitoring**: Search method tracking and optimization insights
 
 ## 🚨 Troubleshooting
 
@@ -678,43 +826,65 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 - Test individual pipeline components (MongoDB, Qdrant, OpenAI)
 - Monitor API usage and rate limits across all services
 
-## 🎯 Future Enhancements
-
-### Short-term Improvements
-- ✅ **Conversational Memory**: Context-aware conversations with LangChain ChatMessageHistory
-- Implement user feedback collection
-- Enhanced error handling and validation
-- Performance optimization for large datasets
-
-### Long-term Roadmap
-- Multi-language support
-- Advanced analytics dashboard
-- Integration with ticketing systems
-- Custom model fine-tuning
-- Real-time collaboration features
-
 ## 📝 Development Notes
 
-### Project Structure Philosophy
-- **Separation of Concerns**: Data pipeline (root) vs application deployment (app/)
-- **Environment Isolation**: Each tier has its own requirements and configuration
-- **Data Persistence**: MongoDB enables reprocessing without re-scraping expensive operations
-- **Deployment Ready**: app/ folder contains everything needed for Streamlit Cloud deployment
+### Advanced Project Structure Philosophy
+- **Separation of Concerns**: Clean separation between data pipeline (root) and deployment (app/)
+- **Environment Isolation**: Each tier has independent requirements and configuration
+- **Feature Modularity**: Advanced RAG features can be toggled independently
+- **Data Persistence**: MongoDB enables reprocessing and experimentation
+- **Deployment Ready**: Enhanced app/ folder with advanced search capabilities
 
-### Architecture Decisions
-1. **Complete Data Pipeline**: Firecrawl → MongoDB → Qdrant → Streamlit for end-to-end automation
-2. **Unified Python Stack**: Streamlit for both UI and AI pipeline for simplicity
-3. **Vector Database**: Qdrant Cloud chosen for performance and scalability
-4. **Embedding Strategy**: FastEmbed BGE-small for efficient 384-dim embeddings
-5. **Response Generation**: OpenAI GPT-4o for high-quality responses
-6. **Data Persistence**: MongoDB for reliable document storage and backup
+### Enhanced Architecture Decisions
+1. **Advanced Data Pipeline**: Firecrawl → MongoDB → Enhanced Qdrant → Advanced Streamlit
+2. **Hybrid Search System**: Vector + BM25 keyword search with intelligent fusion
+3. **Query Enhancement**: Optional GPT-4o query expansion for technical terms
+4. **Enhanced Chunking**: Code-aware splitting with quality metrics
+5. **Smart Configuration**: Feature toggles for different deployment scenarios
+6. **Dual Collection Strategy**: Standard vs enhanced collections for comparison
+7. **Performance Optimization**: Configurable search weights and thresholds
 
-### Trade-offs
-- **Simplicity vs Scale**: Streamlit for rapid development over complex web frameworks
-- **Cost vs Performance**: OpenAI GPT-4o for quality vs local models for cost
-- **Storage vs Compute**: Pre-computed embeddings vs real-time generation
-- **Flexibility vs Complexity**: Multi-stage pipeline (scrape → store → vectorize → deploy)
-- **Data Persistence**: MongoDB storage ensures data availability and reprocessing capability
+### Advanced Trade-offs & Design Decisions
+- **Query Enhancement**: Optional GPT-4o expansion vs direct search (configurable)
+- **Hybrid Search**: Vector + keyword complexity vs pure vector simplicity
+- **Enhanced Chunking**: Structure preservation vs simple character splitting
+- **Feature Toggles**: Flexibility vs configuration complexity
+- **Dual Collections**: Comparison capability vs storage overhead
+- **Search Transparency**: User insight vs UI complexity
+- **Performance vs Features**: Configurable enhancement levels for different use cases
+
+### Production-Ready Enhancements
+- **Collection Management**: Enhanced vs standard collections for A/B testing
+- **Feature Flags**: Runtime configuration of advanced features
+- **Quality Metrics**: Chunk-level quality indicators for optimization
+- **Search Analytics**: Real-time method tracking and performance insights
+- **Graceful Degradation**: Fallbacks ensure system reliability
+
+### Enhanced RAG Implementation (advanced-rag-enhancements branch)
+| Feature | Implementation |
+|---------|----------------|
+| **Search Method** | Hybrid vector + BM25 keyword search |
+| **Query Processing** | Optional GPT-4o query enhancement |
+| **Chunking** | Code-aware splitting with quality metrics |
+| **Results** | Smart reranking with configurable fusion weights |
+| **UI Feedback** | Search method indicators + transparency |
+| **Collection** | `atlan_docs_enhanced` with enhanced metadata |
+| **Configurability** | Feature toggles for all enhancements |
+| **Performance** | Graceful degradation and fallbacks |
+| **Settings Management** | Dynamic configuration with real-time updates |
+| **Configuration** | Import/export, validation, and persistence |
+
+### Key Improvements
+1. **✅ Better Technical Term Handling**: Hybrid search excels at exact matches
+2. **✅ Enhanced Code Examples**: Preserved code blocks in chunking
+3. **✅ Query Expansion**: GPT-4o expands acronyms and technical terms
+4. **✅ Search Transparency**: Users see which methods found their answers
+5. **✅ Quality Metrics**: Chunk-level indicators for optimization
+6. **✅ Configurable Features**: Toggle enhancements based on needs
+7. **✅ Dynamic Settings Management**: Real-time configuration without restart
+8. **✅ Settings Import/Export**: JSON-based configuration sharing and backup
+9. **✅ Collection Management**: Real-time Qdrant collection discovery and switching
+10. **✅ Connection Diagnostics**: Built-in troubleshooting for collection issues
 
 ## 🤝 Contributing
 
