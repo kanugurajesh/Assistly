@@ -7,7 +7,8 @@ from urllib.parse import urlparse
 import json
 from utils import get_mongodb_collection, close_mongodb_client
 
-load_dotenv()
+# Load environment variables from app/.env for deployment-ready structure
+load_dotenv(os.path.join(os.path.dirname(__file__), 'app', '.env'))
 
 # Initialize with your API key
 firecrawl = Firecrawl(api_key=os.getenv("FIRECRAWL_API_KEY"))

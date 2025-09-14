@@ -349,6 +349,8 @@ MONGODB_URI=your_mongodb_atlas_connection_string
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
+> **📁 Deployment-Ready Structure**: The `.env` file is located in the `app/` directory to enable standalone deployment. Root directory scripts (scrape.py, qdrant_ingestion.py) automatically load environment variables from `app/.env`, ensuring consistent configuration across the entire project while maintaining deployment flexibility for platforms like Streamlit Cloud.
+
 ### Environment Variables Reference
 
 **Required for Core Functionality:**
