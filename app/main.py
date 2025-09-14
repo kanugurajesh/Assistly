@@ -224,6 +224,94 @@ def get_sentiment_color(sentiment):
     }
     return colors.get(sentiment, '#6b7280')
 
+def generate_routing_message(primary_topic, classified_topics):
+    """Generate a specific routing message based on the classified topic"""
+    topic_messages = {
+        'Connector': "This appears to be a data connector integration issue. Our Connectors team specializes in setting up and troubleshooting data source connections. They will help you with authentication, permissions, and connection configuration.",
+        'Lineage': "This question is about data lineage and dependency tracking. Our Data Platform team handles lineage-related inquiries and can assist with lineage configuration, troubleshooting, and best practices.",
+        'Glossary': "This relates to business glossary and term management. Our Data Governance team manages glossary features and can help with term definitions, hierarchies, and metadata management.",
+        'Sensitive data': "This involves data privacy and security concerns. Our Security team will review this inquiry to ensure proper handling of sensitive data requirements and compliance considerations.",
+        'Unknown': "We're analyzing the specifics of your request to route it to the most appropriate specialist team.",
+    }
+
+    # Get specific message for the topic, with fallback
+    specific_message = topic_messages.get(primary_topic, f"This has been categorized as a '{primary_topic}' inquiry and will be handled by our specialized team.")
+
+    # Create comprehensive routing message
+    if len(classified_topics) > 1:
+        topics_str = ', '.join(classified_topics[:-1]) + f" and {classified_topics[-1]}"
+        return f"Your inquiry covers {topics_str} topics. {specific_message} You should receive a response within 24 hours. Reference ID: #{hash(str(classified_topics)) % 10000:04d}"
+    else:
+        return f"{specific_message} You should receive a response within 24 hours. Reference ID: #{hash(primary_topic) % 10000:04d}"
+
+def determine_response_type(classification):
+    """
+    Determine whether to use RAG pipeline or route to team based on classification.
+
+    Args:
+        classification: Dictionary containing topic_tags, sentiment, priority from ticket classification
+
+    Returns:
+        dict: Contains 'should_use_rag' (bool), 'response_type' (str), 'reason' (str), 'primary_topic' (str)
+    """
+    # Get RAG topics from session state settings, with fallback to default
+    default_rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
+    rag_topics = st.session_state.get('rag_settings', {}).get('rag_topics', default_rag_topics)
+
+    # Get classified topics, handle edge cases
+    classified_topics = classification.get('topic_tags', [])
+
+    # Handle empty or invalid classification
+    if not classified_topics or not isinstance(classified_topics, list):
+        print(f"Warning: Invalid or empty classification topics: {classified_topics}")
+        return {
+            'should_use_rag': False,
+            'response_type': 'routing',
+            'reason': 'Invalid classification - no topics identified',
+            'primary_topic': 'Unknown',
+            'classified_topics': [],
+            'matched_topics': []
+        }
+
+    # Normalize topics for case-insensitive comparison
+    normalized_classified = [topic.strip().lower() for topic in classified_topics]
+    normalized_rag_topics = [topic.strip().lower() for topic in rag_topics]
+
+    # Find matches
+    matched_topics = []
+    for classified_topic in classified_topics:
+        for rag_topic in rag_topics:
+            if classified_topic.strip().lower() == rag_topic.strip().lower():
+                matched_topics.append(classified_topic)
+                break
+
+    # Determine if we should use RAG
+    should_use_rag = len(matched_topics) > 0
+
+    # Get primary topic for routing message
+    primary_topic = classified_topics[0] if classified_topics else 'Unknown'
+
+    # Create detailed reason
+    if should_use_rag:
+        reason = f"Found RAG topics: {', '.join(matched_topics)}"
+    else:
+        reason = f"No RAG topic match found. Classified as: {', '.join(classified_topics)}"
+
+    # Log decision for debugging
+    print(f"Routing Decision: {reason}")
+    print(f"Classified topics: {classified_topics}")
+    print(f"RAG topics: {rag_topics}")
+    print(f"Matched topics: {matched_topics}")
+
+    return {
+        'should_use_rag': should_use_rag,
+        'response_type': 'rag' if should_use_rag else 'routing',
+        'reason': reason,
+        'primary_topic': primary_topic,
+        'classified_topics': classified_topics,
+        'matched_topics': matched_topics
+    }
+
 def get_available_collections():
     """Get list of available Qdrant collections"""
     try:
@@ -264,10 +352,9 @@ def process_sample_question(sample_text):
                 session_id = st.session_state.conversation_session_id
 
                 classification = st.session_state.rag_pipeline.classify_ticket(sample_text)
-                rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
-                should_use_rag = any(topic in classification.get('topic_tags', []) for topic in rag_topics)
+                routing_decision = determine_response_type(classification)
 
-                if should_use_rag:
+                if routing_decision['should_use_rag']:
                     response_data = st.session_state.rag_pipeline.generate_rag_response(sample_text, session_id)
                     response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                     sources = response_data.get('sources', [])
@@ -281,8 +368,9 @@ def process_sample_question(sample_text):
                         "retrieved_chunks": response_data.get('retrieved_chunks', 0)
                     }
                 else:
-                    primary_topic = classification.get('topic_tags', ['Unknown'])[0] if classification.get('topic_tags') else 'Unknown'
-                    response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
+                    primary_topic = routing_decision['primary_topic']
+                    classified_topics = routing_decision['classified_topics']
+                    response_content = generate_routing_message(primary_topic, classified_topics)
                     sources = []
                     response_type = 'routing'
                     search_info = None
@@ -299,7 +387,8 @@ def process_sample_question(sample_text):
                     "role": "assistant",
                     "content": response_content,
                     "classification": classification,
-                    "response_type": response_type
+                    "response_type": response_type,
+                    "routing_decision": routing_decision
                 }
 
                 if sources:
@@ -310,10 +399,22 @@ def process_sample_question(sample_text):
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
-                error_msg = "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
+                print(f"Error processing sample question: {str(e)}")
+                # Generate more specific error messages
+                if "classification" in str(e).lower():
+                    error_msg = "I'm having trouble analyzing your question right now. This might be a temporary issue with our classification system. Please try again in a moment."
+                elif "rag" in str(e).lower() or "search" in str(e).lower():
+                    error_msg = "I encountered an issue searching our documentation. Your question has been logged and our support team will get back to you within 24 hours."
+                elif "openai" in str(e).lower() or "api" in str(e).lower():
+                    error_msg = "I'm experiencing connectivity issues with our AI service. Please try again shortly, or contact support if the problem persists."
+                else:
+                    error_msg = "I apologize, but I encountered an unexpected error while processing your request. Please try again or contact support if the issue persists."
+
                 st.session_state.messages.append({
                     "role": "assistant",
-                    "content": error_msg
+                    "content": error_msg,
+                    "error": True,
+                    "error_details": str(e) if st.session_state.get('rag_settings', {}).get('show_analysis', True) else None
                 })
     st.rerun()
 
@@ -576,36 +677,66 @@ elif page == "💬 Chat Agent":
                 # Show analysis if enabled and available
                 if show_analysis and "classification" in message:
                     classification = message["classification"]
-                    
+                    routing_decision = message.get("routing_decision", {})
+
                     st.markdown("""
                     <div class="analysis-box">
                         <h4>🔍 Internal Analysis</h4>
                     """, unsafe_allow_html=True)
-                    
+
                     col1, col2 = st.columns(2)
                     with col1:
                         st.markdown("**Topics:**")
                         for topic in classification.get('topic_tags', []):
                             color = get_topic_color(topic)
                             st.markdown(f'<span style="background-color: {color}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px; margin: 1px;">{topic}</span>', unsafe_allow_html=True)
-                        
+
                         st.markdown("**Sentiment:**")
                         sentiment = classification.get('sentiment', 'Unknown')
                         color = get_sentiment_color(sentiment)
                         st.markdown(f'<span style="background-color: {color}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">{sentiment}</span>', unsafe_allow_html=True)
-                    
+
                     with col2:
                         st.markdown("**Priority:**")
                         priority = classification.get('priority', 'Unknown')
                         color = get_priority_color(priority)
                         st.markdown(f'<span style="background-color: {color}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">{priority}</span>', unsafe_allow_html=True)
-                        
+
                         st.markdown("**Response Type:**")
                         response_type = message.get("response_type", "unknown")
                         type_color = "#10b981" if response_type == "rag" else "#f97316"
                         type_text = "🔍 RAG Response" if response_type == "rag" else "🔄 Routed to Team"
                         st.markdown(f'<span style="background-color: {type_color}; color: white; padding: 2px 6px; border-radius: 10px; font-size: 11px;">{type_text}</span>', unsafe_allow_html=True)
-                    
+
+                    # Show routing decision details if available
+                    if routing_decision:
+                        st.markdown("---")
+                        st.markdown("**🔀 Routing Decision Details:**")
+                        col3, col4 = st.columns(2)
+
+                        with col3:
+                            if routing_decision.get('matched_topics'):
+                                st.markdown(f"**✅ Matched RAG Topics:** {', '.join(routing_decision['matched_topics'])}")
+                            else:
+                                st.markdown("**❌ No RAG Topics Matched**")
+
+                            if routing_decision.get('reason'):
+                                st.markdown(f"**📝 Reason:** {routing_decision['reason']}")
+
+                        with col4:
+                            if routing_decision.get('classified_topics'):
+                                topics = routing_decision['classified_topics']
+                                st.markdown(f"**🏷️ All Classified Topics:** {', '.join(topics)}")
+
+                            current_rag_topics = st.session_state.get('rag_settings', {}).get('rag_topics', ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO'])
+                            st.markdown(f"**⚙️ Current RAG Topics:** {', '.join(current_rag_topics)}")
+
+                    # Show error details if available
+                    if message.get("error") and message.get("error_details"):
+                        st.markdown("---")
+                        st.markdown("**🔴 Error Details:**")
+                        st.code(message["error_details"], language="text")
+
                     st.markdown("</div>", unsafe_allow_html=True)
                 
                 # Show enhanced search information if available
@@ -691,10 +822,9 @@ elif page == "💬 Chat Agent":
                     classification = st.session_state.rag_pipeline.classify_ticket(input_text)
 
                     # Determine response type and generate response
-                    rag_topics = ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
-                    should_use_rag = any(topic in classification.get('topic_tags', []) for topic in rag_topics)
+                    routing_decision = determine_response_type(classification)
 
-                    if should_use_rag:
+                    if routing_decision['should_use_rag']:
                         # Generate RAG response with conversation memory
                         response_data = st.session_state.rag_pipeline.generate_rag_response(input_text, session_id)
                         response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
@@ -710,8 +840,9 @@ elif page == "💬 Chat Agent":
                         }
                     else:
                         # Generate routing response
-                        primary_topic = classification.get('topic_tags', ['Unknown'])[0] if classification.get('topic_tags') else 'Unknown'
-                        response_content = f"This ticket has been classified as a '{primary_topic}' issue and routed to the appropriate team for specialized assistance. You should receive a response within 24 hours."
+                        primary_topic = routing_decision['primary_topic']
+                        classified_topics = routing_decision['classified_topics']
+                        response_content = generate_routing_message(primary_topic, classified_topics)
                         sources = []
                         response_type = 'routing'
                         search_info = None
@@ -725,7 +856,8 @@ elif page == "💬 Chat Agent":
                         "role": "assistant",
                         "content": response_content,
                         "classification": classification,
-                        "response_type": response_type
+                        "response_type": response_type,
+                        "routing_decision": routing_decision
                     }
 
                     if sources:
@@ -737,11 +869,23 @@ elif page == "💬 Chat Agent":
                     st.session_state.messages.append(assistant_message)
 
                 except Exception as e:
+                    print(f"Error processing chat message: {str(e)}")
                     st.error(f"Error processing message: {str(e)}")
-                    error_msg = "I apologize, but I encountered an error while processing your request. Please try again or contact support if the issue persists."
+                    # Generate more specific error messages
+                    if "classification" in str(e).lower():
+                        error_msg = "I'm having trouble analyzing your question right now. This might be a temporary issue with our classification system. Please try again in a moment."
+                    elif "rag" in str(e).lower() or "search" in str(e).lower():
+                        error_msg = "I encountered an issue searching our documentation. Your question has been logged and our support team will get back to you within 24 hours."
+                    elif "openai" in str(e).lower() or "api" in str(e).lower():
+                        error_msg = "I'm experiencing connectivity issues with our AI service. Please try again shortly, or contact support if the problem persists."
+                    else:
+                        error_msg = "I apologize, but I encountered an unexpected error while processing your request. Please try again or contact support if the issue persists."
+
                     st.session_state.messages.append({
                         "role": "assistant",
-                        "content": error_msg
+                        "content": error_msg,
+                        "error": True,
+                        "error_details": str(e) if st.session_state.get('rag_settings', {}).get('show_analysis', True) else None
                     })
 
             # Rerun to update the chat display
@@ -796,7 +940,10 @@ elif page == "⚙️ Settings":
             'enable_hybrid_search': True,
 
             # UI Settings
-            'show_analysis': True
+            'show_analysis': True,
+
+            # Routing Settings
+            'rag_topics': ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
         }
 
     # Quick help section
@@ -818,12 +965,16 @@ elif page == "⚙️ Settings":
         - **Hybrid Search**: Combine semantic + keyword search for better results
         - **Query Enhancement**: Use AI to improve search queries
 
+        **🔀 Routing Settings**: Configure which topics use AI vs team routing
+        - **RAG Topics**: Topics that get AI-powered responses from documentation
+        - **Team Routing**: Topics that get routed to specialized support teams
+
         **🎨 UI Settings**: Customize the interface appearance
         - **Show Analysis**: Display classification details by default
         """)
 
     # Create tabs for different setting categories
-    tab1, tab2, tab3, tab4 = st.tabs(["🔍 Search Settings", "🤖 Model Settings", "⚡ Features", "🎨 UI Settings"])
+    tab1, tab2, tab3, tab4, tab5 = st.tabs(["🔍 Search Settings", "🤖 Model Settings", "⚡ Features", "🔀 Routing", "🎨 UI Settings"])
 
     with tab1:
         st.markdown("### Search Parameters")
@@ -1050,6 +1201,59 @@ elif page == "⚙️ Settings":
                 st.info(f"**Query Enhancement**: {enhancement_status}")
 
     with tab4:
+        st.markdown("### Response Routing Configuration")
+
+        st.markdown("#### RAG-enabled Topics")
+        st.write("Select which topics should trigger AI-powered responses using the RAG pipeline. All other topics will be routed to specialized teams.")
+
+        # Get all available topic options from the classifier
+        all_topics = [
+            'How-to', 'Product', 'Connector', 'Lineage',
+            'API/SDK', 'SSO', 'Glossary', 'Best practices',
+            'Sensitive data'
+        ]
+
+        # Current RAG topics
+        current_rag_topics = st.session_state.rag_settings.get('rag_topics', ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO'])
+
+        # Multiselect for RAG topics
+        selected_topics = st.multiselect(
+            "Topics that should use RAG pipeline (AI-powered responses)",
+            options=all_topics,
+            default=current_rag_topics,
+            help="Topics selected here will get AI-powered responses from documentation. Others will be routed to teams."
+        )
+
+        # Update settings
+        st.session_state.rag_settings['rag_topics'] = selected_topics
+
+        # Show current configuration
+        col1, col2 = st.columns(2)
+
+        with col1:
+            st.markdown("#### ✅ RAG-enabled Topics")
+            if selected_topics:
+                for topic in selected_topics:
+                    st.write(f"• **{topic}** → AI Response")
+            else:
+                st.write("*No topics selected - all will be routed*")
+
+        with col2:
+            st.markdown("#### 🔄 Team-routed Topics")
+            routed_topics = [topic for topic in all_topics if topic not in selected_topics]
+            if routed_topics:
+                for topic in routed_topics:
+                    st.write(f"• **{topic}** → Team Routing")
+            else:
+                st.write("*All topics will use AI responses*")
+
+        # Configuration warnings
+        if not selected_topics:
+            st.warning("⚠️ No RAG topics selected - all questions will be routed to teams instead of getting AI responses.")
+        elif len(selected_topics) == len(all_topics):
+            st.info("💡 All topics will use AI responses - no questions will be routed to teams.")
+
+    with tab5:
         st.markdown("### User Interface Settings")
 
         st.session_state.rag_settings['show_analysis'] = st.checkbox(
@@ -1139,7 +1343,8 @@ elif page == "⚙️ Settings":
                 'llm_model': 'gpt-4o',
                 'enable_query_enhancement': False,
                 'enable_hybrid_search': True,
-                'show_analysis': True
+                'show_analysis': True,
+                'rag_topics': ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
             }
             st.success("🔄 Settings reset to defaults")
             st.rerun()
