@@ -32,9 +32,9 @@ This is the Streamlit implementation of the Atlan Customer Support Copilot, prov
    ```
 
 2. **Set Environment Variables**
-   Create a `.env` file in the parent directory with:
+   Create a `.env` file in the app directory with:
    ```env
-   GOOGLE_API_KEY=your_gemini_api_key
+   OPENAI_API_KEY=your_openai_api_key
    QDRANT_URI=your_qdrant_endpoint
    QDRANT_API_KEY=your_qdrant_api_key
    MONGODB_URI=your_mongodb_connection_string
@@ -43,7 +43,7 @@ This is the Streamlit implementation of the Atlan Customer Support Copilot, prov
 
 3. **Run Data Pipeline** (from parent directory)
    ```bash
-   python qdrant-ingestion.py
+   python qdrant_ingestion.py
    ```
 
 4. **Start Streamlit App**
@@ -61,7 +61,7 @@ The Streamlit app integrates with the existing Python backend:
 - **RAG Pipeline**: Uses `rag_pipeline.py` for AI processing
 - **Sample Data**: Loads from `sample_tickets.json`
 - **Vector Database**: Connects to Qdrant for document retrieval
-- **AI Models**: Google Gemini 1.5 Flash for classification and responses
+- **AI Models**: OpenAI GPT-4o for classification and responses
 
 ## Navigation
 
@@ -69,14 +69,47 @@ The Streamlit app integrates with the existing Python backend:
 - **Home**: Overview and quick access buttons
 - **Dashboard**: Bulk ticket processing and analysis
 - **Chat Agent**: Interactive Q&A interface
+- **Settings**: Comprehensive configuration management
+
+## ⚙️ Settings Page Features
+
+### Collection Management
+- **Dynamic Discovery**: Automatically detects available Qdrant collections
+- **Real-time Information**: Shows collection stats (points count, vector dimensions, distance metric)
+- **Easy Switching**: Dropdown selection with immediate application
+- **Validation**: Built-in checks for collection existence and compatibility
+- **Troubleshooting**: Connection diagnostics and helpful error messages
+
+### Search Configuration
+- **TOP_K**: Configure number of search results to retrieve (1-20)
+- **Score Threshold**: Set minimum similarity threshold for relevance (0.0-1.0)
+- **Hybrid Weights**: Balance vector search vs keyword search (0.0-1.0 each)
+
+### Model Settings
+- **OpenAI Model Selection**: Choose between GPT-4o, GPT-4o-mini, GPT-4-turbo
+- **Response Temperature**: Control creativity vs consistency (0.0-2.0)
+- **Max Tokens**: Set maximum response length (100-4000)
+- **Classification Temperature**: Fine-tune classification consistency (0.0-1.0)
+
+### Feature Toggles
+- **Hybrid Search**: Enable/disable vector + keyword search combination
+- **Query Enhancement**: Toggle GPT-4o query expansion for technical terms
+
+### Settings Management
+- **Real-time Updates**: All changes apply immediately without restart
+- **Import/Export**: JSON-based configuration backup and sharing
+- **Reset to Defaults**: One-click restoration of default settings
+- **Validation Warnings**: Automatic detection of problematic configurations
+- **Settings Overview**: View both UI settings and active pipeline configuration
 
 ## Key Differences from Next.js Version
 
-1. **Single Page Application**: All functionality in one Python file
-2. **Server-Side Rendering**: No API routes needed
+1. **Integrated Application**: All functionality with settings management
+2. **Server-Side Processing**: No API routes needed
 3. **Direct Integration**: Calls Python functions directly
-4. **Streamlit Components**: Uses native Streamlit UI components
-5. **Simplified Deployment**: Single command to run
+4. **Advanced Configuration**: Dynamic settings page with real-time updates
+5. **Collection Management**: Real-time Qdrant collection discovery and switching
+6. **Simplified Deployment**: Single command to run with comprehensive features
 
 ## Deployment Options
 
@@ -136,9 +169,9 @@ CMD ["streamlit", "run", "main.py", "--server.port=8501", "--server.address=0.0.
    - Check file permissions and format
 
 3. **Classification Errors**
-   - Verify Google AI API key
-   - Check rate limits
-   - Monitor API quota usage
+   - Verify OpenAI API key
+   - Check rate limits and quota
+   - Monitor API usage costs
 
 ## Support
 
