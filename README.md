@@ -192,7 +192,7 @@ An advanced AI-powered customer support system that automatically classifies tic
     │ │Classification│ │──▶│  │   MongoDB Atlas │   │     Qdrant Cloud        │ │
     │ │• JSON Output │ │    │  │ ┌─────────────┐ │   │ ┌─────────────────────┐ │ │
     │ │• Structured │ │     │  │ │Raw Documents│ │   │ │Vector Collections   │ │ │
-    │ └─────────────┘ │     │  │ │• HTML Text  │ │   │ │• atlan_docs_enhanced│ │ │
+    │ └─────────────┘ │     │  │ │• Markdown Text │ │   │ │• atlan_docs_enhanced│ │ │
     │ ┌─────────────┐ │     │  │ │• Metadata   │ │   │ │• Embeddings (384d)  │ │ │
     │ │Query Enhance│ │     │  │ │• Timestamps │ │   │ │• Payloads           │ │ │
     │ │• Term Expand│ │     │  │ └─────────────┘ │   │ └─────────────────────┘ │ │
@@ -779,6 +779,130 @@ The system analyzes tickets using structured prompts to generate:
 - **Custom Collections**: Use `--qdrant-collection` to create separate vector collections for different projects
 - **Chunk Configuration**: Adjust size and overlap in qdrant_ingestion.py (default: 1200 tokens, 200 overlap)
 - **Vector Search**: Modify threshold and top-K in app/rag_pipeline.py (default: 0.3 threshold, 5 chunks)
+
+## 📊 Qdrant Collections & Chunking Strategies
+
+This project implements two different Qdrant collections with distinct chunking strategies to optimize for different use cases and document types.
+
+### Collections Overview
+
+| Collection | Chunking Strategy | Branch Availability | Best For |
+|------------|------------------|-------------------|----------|
+| **`atlan_docs`** | Basic Chunking | Development branch | Plain text, fast processing |
+| **`atlan_docs_enhanced`** | Enhanced Chunking | Main & advanced-rag-enhancements branches | Technical docs with code |
+
+### Basic Chunking Strategy (`atlan_docs`)
+
+**Implementation Location**: Available in the development branch of this repository
+
+**Technical Details**:
+- Uses simple `RecursiveCharacterTextSplitter` with basic separators: `["\n\n", "\n", " ", ""]`
+- Chunk size: ~1200 characters with 200 character overlap
+- Keeps separators in chunks (`keep_separator=True`)
+- Fast, straightforward processing
+
+**Metadata Structure**:
+```json
+{
+  "text": "chunk content...",
+  "source_url": "https://docs.atlan.com/...",
+  "title": "Document Title",
+  "doc_type": "docs" | "developer",
+  "chunk_index": 0,
+  "total_chunks": 5
+}
+```
+
+**Characteristics**:
+- ✅ **Pros**: Simple, fast, works well for plain text documents
+- ❌ **Cons**:
+  - Doesn't preserve code blocks (may split ```` blocks)
+  - Markdown structure (headers, lists) may be broken
+  - Chunks may cut through semantic boundaries → lower retrieval quality
+
+### Enhanced Chunking Strategy (`atlan_docs_enhanced`)
+
+**Implementation Location**: Current implementation in main and advanced-rag-enhancements branches
+
+**Technical Details**:
+- **Code Block Preservation**: Uses `preserve_code_blocks()` function to surround code blocks with newlines
+- **Rich Separators**: 15+ separator types for optimal semantic boundaries:
+  ```python
+  separators=[
+      "\n\n\n",          # Major section breaks
+      "\n\n",            # Paragraph breaks
+      "\n```\n", "```\n", # Code block boundaries
+      "\n# ", "\n## ", "\n### ", "\n#### ",  # Headers
+      "\n- ", "\n* ", "\n1. ", "\n2. ",      # Lists
+      "\n", ". ", "? ", "! ", "; ", ", ",     # Sentences & punctuation
+      " ", ""             # Words & characters
+  ]
+  ```
+- **Quality Metrics**: Analyzes chunk content for optimization
+
+**Enhanced Metadata Structure**:
+```json
+{
+  "text": "chunk content...",
+  "source_url": "https://docs.atlan.com/...",
+  "title": "Document Title",
+  "doc_type": "docs" | "developer",
+  "chunk_index": 0,
+  "total_chunks": 5,
+  "word_count": 150,
+  "has_code": true,
+  "has_headers": true,
+  "chunk_quality": "high" | "medium"
+}
+```
+
+**Characteristics**:
+- ✅ **Pros**:
+  - Preserves semantic meaning better (respects headers, lists, sentences)
+  - Code blocks are chunked as whole units (maintains functional examples)
+  - Quality metadata enables downstream filtering and optimization
+  - Better context preservation for technical documentation
+- ❌ **Cons**:
+  - More complex processing (slower)
+  - Slightly larger metadata footprint
+
+### Key Differences Summary
+
+| Aspect | Basic Chunking | Enhanced Chunking |
+|--------|----------------|-------------------|
+| **Speed** | Fast ⚡ | Moderate ⏱️ |
+| **Code Preservation** | ❌ May split code blocks | ✅ Preserves complete code blocks |
+| **Markdown Awareness** | ❌ Basic line/paragraph splitting | ✅ Respects headers, lists, structure |
+| **Quality Tracking** | ❌ No quality metrics | ✅ Chunk quality indicators |
+| **Use Case** | Raw text ingestion | Developer documentation |
+| **Retrieval Quality** | Good for simple text | Superior for technical content |
+
+### Collection Selection Guidance
+
+**Choose `atlan_docs` (Basic) when**:
+- Processing large volumes of plain text
+- Speed is critical over quality
+- Documents don't contain code examples
+- Simple question-answering scenarios
+
+**Choose `atlan_docs_enhanced` (Enhanced) when**:
+- Processing technical documentation
+- Documents contain code examples and structured content
+- Quality of retrieval is more important than speed
+- Need chunk-level quality metrics for optimization
+
+**Switching Collections**:
+1. Navigate to "⚙️ Settings" in the sidebar
+2. Use the "Collection Management" section
+3. Select from available Qdrant collections
+4. Apply changes in real-time without restart
+
+### Performance Implications
+
+- **Basic Chunking**: ~40% faster processing, smaller storage footprint
+- **Enhanced Chunking**: Higher retrieval accuracy for technical queries, better context preservation
+
+Choose based on your specific use case: speed vs. quality trade-off.
 
 ### Common Pipeline Workflows
 
