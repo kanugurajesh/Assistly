@@ -234,7 +234,7 @@ An advanced AI-powered customer support system that automatically classifies tic
     │                           External Documentation                           │
     │  ┌─────────────────────────────────────┐  ┌───────────────────────────────┐│
     │  │         docs.atlan.com              │  │     developer.atlan.com       ││
-    │  │ • Product Documentation (~700 pages)│  │ • API Documentation (~300)    ││ 
+    │  │ • Product Documentation (~1078 pages)│  │ • API Documentation (~611)    ││ 
     │  │ • User Guides                       │  │ • SDK References              ││
     │  │ • Feature Explanations              │  │ • Code Examples               ││
     │  │ • Best Practices                    │  │ • Technical Specifications    ││
@@ -396,8 +396,8 @@ pip install -r requirements.txt
 **Step 1: Web Scraping with Firecrawl**
 ```bash
 # Basic scraping (pre-completed for Atlan docs)
-python scrape.py https://docs.atlan.com --limit 700
-python scrape.py https://developer.atlan.com --limit 300
+python scrape.py https://docs.atlan.com --limit 3000
+python scrape.py https://developer.atlan.com --limit 1000
 
 # Custom scraping examples
 python scrape.py https://your-docs.com --limit 500 --collection custom_docs
@@ -429,7 +429,7 @@ python scrape.py <URL> [OPTIONS]
 ```
 
 **Available Options:**
-- `--limit <number>`: Maximum pages to crawl (default: 700)
+- `--limit <number>`: Maximum pages to crawl (default: 3000)
 - `--collection <name>`: MongoDB collection name (default: atlan_developer_docs)
 
 **Common Scraping Scenarios:**
@@ -521,11 +521,11 @@ python qdrant_ingestion.py --collection test_docs --qdrant-collection test_vecto
 
 **Production Updates:**
 ```bash
-# Incremental update (default behavior)
-python qdrant_ingestion.py --source-url "https://docs.atlan.com"
+# Re-scrape updated content (overwrites existing URLs)
+python scrape.py https://docs.atlan.com --limit 3000
 
-# Full rebuild when needed
-python qdrant_ingestion.py --recreate
+# Incremental ingestion (only new/changed documents)
+python qdrant_ingestion.py
 ```
 
 **Multi-Source Management:**
