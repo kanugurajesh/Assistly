@@ -224,6 +224,36 @@ def get_sentiment_color(sentiment):
     }
     return colors.get(sentiment, '#6b7280')
 
+def get_available_collections():
+    """Get list of available Qdrant collections"""
+    try:
+        if st.session_state.rag_pipeline:
+            # Try to access Qdrant client from the RAG pipeline
+            from rag_pipeline import qdrant_client
+            collections = qdrant_client.get_collections()
+            collection_names = [col.name for col in collections.collections]
+            return collection_names, None
+        else:
+            return [], "RAG pipeline not initialized"
+    except Exception as e:
+        return [], f"Error connecting to Qdrant: {str(e)}"
+
+def get_collection_info(collection_name):
+    """Get information about a specific collection"""
+    try:
+        if st.session_state.rag_pipeline:
+            from rag_pipeline import qdrant_client
+            info = qdrant_client.get_collection(collection_name)
+            return {
+                'points_count': info.points_count,
+                'vector_size': info.config.params.vectors.size,
+                'distance': info.config.params.vectors.distance.value if hasattr(info.config.params.vectors.distance, 'value') else str(info.config.params.vectors.distance)
+            }, None
+        else:
+            return None, "RAG pipeline not initialized"
+    except Exception as e:
+        return None, f"Error getting collection info: {str(e)}"
+
 def process_sample_question(sample_text):
     """Process a sample question and add both user message and AI response with memory"""
     st.session_state.messages.append({"role": "user", "content": sample_text})
@@ -749,6 +779,7 @@ elif page == "⚙️ Settings":
             'score_threshold': 0.3,
             'hybrid_vector_weight': 1.0,
             'hybrid_keyword_weight': 0.0,
+            'collection_name': 'atlan_docs_enhanced',  # Default collection
 
             # Model Settings
             'max_tokens': 1000,
@@ -768,6 +799,7 @@ elif page == "⚙️ Settings":
     with st.expander("❓ Settings Help", expanded=False):
         st.markdown("""
         **🔍 Search Settings**: Control how many documents are retrieved and similarity thresholds
+        - **Collection**: Which Qdrant collection to search in
         - **TOP_K**: Number of most relevant documents to find
         - **Score Threshold**: Minimum similarity score to include results
         - **Search Weights**: Balance between vector (semantic) and keyword (exact) search
@@ -791,6 +823,106 @@ elif page == "⚙️ Settings":
     with tab1:
         st.markdown("### Search Parameters")
 
+        # Collection selection section
+        st.markdown("#### Qdrant Collection")
+        col1, col2 = st.columns([3, 1])
+
+        with col1:
+            # Get available collections
+            available_collections, error = get_available_collections()
+
+            if error:
+                # Fallback to text input if we can't get collections
+                st.warning(f"⚠️ {error}")
+
+                with st.expander("🔧 Troubleshooting", expanded=False):
+                    st.markdown("""
+                    **Common issues:**
+                    - Check if RAG pipeline is properly initialized
+                    - Verify Qdrant credentials in .env file
+                    - Ensure Qdrant service is running and accessible
+                    - Check network connectivity to Qdrant endpoint
+                    """)
+
+                st.session_state.rag_settings['collection_name'] = st.text_input(
+                    "Collection name (manual entry)",
+                    value=st.session_state.rag_settings['collection_name'],
+                    help="Enter the Qdrant collection name manually"
+                )
+            else:
+                # Use dropdown with available collections
+                current_collection = st.session_state.rag_settings['collection_name']
+
+                # Ensure current collection is in the list (in case it's custom)
+                if current_collection not in available_collections and current_collection:
+                    available_collections.append(current_collection)
+
+                if available_collections:
+                    try:
+                        current_index = available_collections.index(current_collection) if current_collection in available_collections else 0
+                    except (ValueError, IndexError):
+                        current_index = 0
+
+                    st.session_state.rag_settings['collection_name'] = st.selectbox(
+                        "Select Qdrant collection",
+                        options=available_collections,
+                        index=current_index,
+                        help="Choose from available Qdrant collections"
+                    )
+
+                    # Show available collections summary
+                    if len(available_collections) > 1:
+                        with st.expander("📋 Available Collections Summary", expanded=False):
+                            for col_name in available_collections:
+                                info, _ = get_collection_info(col_name)
+                                if info:
+                                    st.write(f"**{col_name}**: {info['points_count']:,} points, {info['vector_size']}D vectors")
+                                else:
+                                    st.write(f"**{col_name}**: Info unavailable")
+                else:
+                    st.info("No collections found. Create one using the ingestion script.")
+
+                    with st.expander("💡 How to create collections", expanded=False):
+                        st.markdown("""
+                        **To create a new collection:**
+                        1. Use the ingestion script: `python qdrant_ingestion.py`
+                        2. Available options:
+                           - `--qdrant-collection your_collection_name`
+                           - `--source-url https://docs.atlan.com` (filter by URL)
+                           - `--recreate` (delete existing collection)
+
+                        **Example:**
+                        ```bash
+                        python qdrant_ingestion.py --qdrant-collection my_docs --source-url https://docs.atlan.com
+                        ```
+                        """)
+
+                    st.session_state.rag_settings['collection_name'] = st.text_input(
+                        "Collection name",
+                        value=st.session_state.rag_settings['collection_name'],
+                        help="Enter the Qdrant collection name"
+                    )
+
+        with col2:
+            # Refresh collections button
+            if st.button("🔄 Refresh", help="Refresh available collections"):
+                st.rerun()
+
+        # Show collection info if available
+        if st.session_state.rag_settings['collection_name']:
+            collection_info, info_error = get_collection_info(st.session_state.rag_settings['collection_name'])
+            if collection_info:
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.metric("Points", collection_info['points_count'])
+                with col2:
+                    st.metric("Vector Size", collection_info['vector_size'])
+                with col3:
+                    st.metric("Distance", collection_info['distance'])
+            elif info_error:
+                st.warning(f"ℹ️ Collection info unavailable: {info_error}")
+
+        st.markdown("#### Retrieval Parameters")
         col1, col2 = st.columns(2)
 
         with col1:
@@ -932,6 +1064,14 @@ elif page == "⚙️ Settings":
     if settings['score_threshold'] > 0.8:
         warnings.append("⚠️ High score threshold (>0.8) may result in no search results")
 
+    # Check collection-specific warnings
+    if settings.get('collection_name'):
+        collection_info, info_error = get_collection_info(settings['collection_name'])
+        if info_error:
+            warnings.append(f"⚠️ Collection '{settings['collection_name']}' may not exist or be accessible")
+        elif collection_info and collection_info['points_count'] == 0:
+            warnings.append(f"⚠️ Collection '{settings['collection_name']}' is empty - no search results will be returned")
+
     if warnings:
         for warning in warnings:
             st.warning(warning)
@@ -967,6 +1107,7 @@ elif page == "⚙️ Settings":
                 'score_threshold': 0.3,
                 'hybrid_vector_weight': 1.0,
                 'hybrid_keyword_weight': 0.0,
+                'collection_name': 'atlan_docs_enhanced',
                 'max_tokens': 1000,
                 'temperature': 0.3,
                 'classification_temperature': 0.1,

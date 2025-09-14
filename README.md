@@ -11,6 +11,7 @@ An advanced AI-powered customer support system that automatically classifies tic
 - **Advanced RAG Responses**: Intelligent answers powered by hybrid search and enhanced retrieval
 - **Source Citations**: All responses include links to relevant documentation
 - **Search Transparency**: Real-time indicators showing search methods used (vector, keyword, or hybrid)
+- **Dynamic Settings Management**: Comprehensive settings page for real-time pipeline configuration
 
 ### Advanced RAG Features
 - **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
@@ -18,6 +19,8 @@ An advanced AI-powered customer support system that automatically classifies tic
 - **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
 - **Smart Reranking**: Weighted merging of vector and keyword search results (70/30 split)
 - **Quality Metrics**: Chunk quality indicators including code detection and header analysis
+- **Real-time Configuration**: Dynamic settings updates without application restart
+- **Settings Import/Export**: JSON-based configuration backup and sharing
 
 ### Classification Schema
 - **Topic Tags**: How-to, Product, Connector, Lineage, API/SDK, SSO, Glossary, Best practices, Sensitive data
@@ -149,10 +152,10 @@ An advanced AI-powered customer support system that automatically classifies tic
     ┌─────────────────────────────────────────────────────────────────────────────┐
     │                    👤 User Browser Session                                 │
     │  ┌─────────────────────────────────────────────────────────────────────┐   │
-    │  │  📊 Dashboard Page        💬 Chat Agent        📈 Analytics Page   │   │
-    │  │  • Bulk Classification   • Real-time Chat     • Performance Stats  │   │
-    │  │  • 30+ Sample Tickets    • Memory Context     • Search Analytics   │   │
-    │  │  • Statistics Summary    • Source Citations   • Usage Metrics      │   │
+    │  │  📊 Dashboard   💬 Chat Agent   ⚙️ Settings   📈 Analytics Page   │   │
+    │  │  • Bulk Class.  • Real-time Chat • Dynamic Config • Performance    │   │
+    │  │  • 30+ Tickets  • Memory Context  • Import/Export  • Search Stats   │   │
+    │  │  • Statistics   • Source Cites    • Validation    • Usage Metrics   │   │
     │  └─────────────────────────────────────────────────────────────────────┘   │
     └─────────────────────────┬───────────────────────────────────────────────────┘
                              │ HTTP Requests
@@ -548,6 +551,16 @@ The application will open automatically in your browser at `http://localhost:850
 4. Get intelligent responses with source citations
 5. Try sample questions or submit your own tickets
 
+### Settings Page
+1. Navigate to "⚙️ Settings" in the sidebar
+2. Configure search parameters (TOP_K, score thresholds, hybrid weights)
+3. Adjust model settings (temperature, max tokens, model selection)
+4. Toggle features (hybrid search, query enhancement)
+5. Customize UI preferences (show analysis default)
+6. Apply settings in real-time without restarting the application
+7. Export/import settings configurations as JSON files
+8. View configuration warnings for potentially problematic settings
+
 ## 🧠 Advanced AI Pipeline Details
 
 ### Enhanced Classification Logic
@@ -614,10 +627,22 @@ The system analyzes tickets using structured prompts to generate:
 ### Advanced RAG Configuration (app/rag_pipeline.py)
 - `ENABLE_QUERY_ENHANCEMENT`: Toggle GPT-4o query expansion (default: False)
 - `ENABLE_HYBRID_SEARCH`: Toggle vector + BM25 hybrid search (default: True)
-- `HYBRID_VECTOR_WEIGHT`: Weight for vector search results (default: 0.7)
-- `HYBRID_KEYWORD_WEIGHT`: Weight for BM25 keyword results (default: 0.3)
+- `HYBRID_VECTOR_WEIGHT`: Weight for vector search results (default: 1.0)
+- `HYBRID_KEYWORD_WEIGHT`: Weight for BM25 keyword results (default: 0.0)
 - `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs_enhanced")
 - `SCORE_THRESHOLD`: Minimum similarity threshold (default: 0.3)
+- `TOP_K`: Number of search results to retrieve (default: 5)
+- `MAX_TOKENS`: Maximum response length (default: 1000)
+- `TEMPERATURE`: Response creativity level (default: 0.3)
+- `LLM_MODEL`: OpenAI model for responses (default: "gpt-4o")
+
+### Dynamic Settings Management
+- **Real-time Updates**: All configuration changes apply immediately without restart
+- **Settings Validation**: Built-in warnings for potentially problematic configurations
+- **Import/Export**: JSON-based settings backup and sharing capabilities
+- **UI Integration**: Settings page with tabbed interface for different parameter categories
+- **Configuration Persistence**: Settings stored in session state and applied to pipeline
+- **Fallback Handling**: Graceful degradation when settings cause issues
 
 ### Data Pipeline Configuration
 - **Scraping Parameters**: Use `--limit` and `--collection` options in scrape.py for custom URLs and crawl limits
@@ -783,11 +808,13 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 | **Search Method** | Hybrid vector + BM25 keyword search |
 | **Query Processing** | Optional GPT-4o query enhancement |
 | **Chunking** | Code-aware splitting with quality metrics |
-| **Results** | Smart reranking with 70/30 fusion |
+| **Results** | Smart reranking with configurable fusion weights |
 | **UI Feedback** | Search method indicators + transparency |
 | **Collection** | `atlan_docs_enhanced` with enhanced metadata |
 | **Configurability** | Feature toggles for all enhancements |
 | **Performance** | Graceful degradation and fallbacks |
+| **Settings Management** | Dynamic configuration with real-time updates |
+| **Configuration** | Import/export, validation, and persistence |
 
 ### Key Improvements
 1. **✅ Better Technical Term Handling**: Hybrid search excels at exact matches
@@ -796,6 +823,8 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 4. **✅ Search Transparency**: Users see which methods found their answers
 5. **✅ Quality Metrics**: Chunk-level indicators for optimization
 6. **✅ Configurable Features**: Toggle enhancements based on needs
+7. **✅ Dynamic Settings Management**: Real-time configuration without restart
+8. **✅ Settings Import/Export**: JSON-based configuration sharing and backup
 
 ## 🤝 Contributing
 

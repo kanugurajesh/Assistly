@@ -560,7 +560,8 @@ class RAGPipeline:
             'enable_query_enhancement': ENABLE_QUERY_ENHANCEMENT,
             'enable_hybrid_search': ENABLE_HYBRID_SEARCH,
             'hybrid_vector_weight': HYBRID_VECTOR_WEIGHT,
-            'hybrid_keyword_weight': HYBRID_KEYWORD_WEIGHT
+            'hybrid_keyword_weight': HYBRID_KEYWORD_WEIGHT,
+            'collection_name': COLLECTION_NAME
         }
 
     def update_settings(self, new_settings: Dict[str, Any]) -> bool:
@@ -572,7 +573,7 @@ class RAGPipeline:
             # Update global constants (for new instances)
             global TOP_K, SCORE_THRESHOLD, MAX_TOKENS, TEMPERATURE, CLASSIFICATION_TEMPERATURE
             global LLM_MODEL, ENABLE_QUERY_ENHANCEMENT, ENABLE_HYBRID_SEARCH
-            global HYBRID_VECTOR_WEIGHT, HYBRID_KEYWORD_WEIGHT
+            global HYBRID_VECTOR_WEIGHT, HYBRID_KEYWORD_WEIGHT, COLLECTION_NAME
 
             if 'top_k' in new_settings:
                 TOP_K = new_settings['top_k']
@@ -588,10 +589,16 @@ class RAGPipeline:
                 LLM_MODEL = new_settings['llm_model']
             if 'enable_query_enhancement' in new_settings:
                 ENABLE_QUERY_ENHANCEMENT = new_settings['enable_query_enhancement']
+            if 'collection_name' in new_settings:
+                COLLECTION_NAME = new_settings['collection_name']
+                # Reinitialize BM25 index when collection changes
+                if hasattr(self.rag, '_initialize_bm25_index'):
+                    print(f"Switching to collection: {COLLECTION_NAME}")
+                    self.rag._initialize_bm25_index()
             if 'enable_hybrid_search' in new_settings:
                 ENABLE_HYBRID_SEARCH = new_settings['enable_hybrid_search']
                 # Reinitialize BM25 index if hybrid search settings changed
-                if 'enable_hybrid_search' in new_settings and hasattr(self.rag, '_initialize_bm25_index'):
+                if hasattr(self.rag, '_initialize_bm25_index'):
                     self.rag._initialize_bm25_index()
             if 'hybrid_vector_weight' in new_settings:
                 HYBRID_VECTOR_WEIGHT = new_settings['hybrid_vector_weight']
