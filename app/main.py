@@ -807,6 +807,7 @@ elif page == "⚙️ Settings":
         - **TOP_K**: Number of most relevant documents to find
         - **Score Threshold**: Minimum similarity score to include results
         - **Search Weights**: Balance between vector (semantic) and keyword (exact) search
+          - Weights are auto-balanced to sum to 1.0 (e.g., Vector 0.7 → Keyword 0.3)
 
         **🤖 Model Settings**: Configure the AI model behavior
         - **LLM Model**: Which OpenAI model to use for responses
@@ -946,21 +947,39 @@ elif page == "⚙️ Settings":
             )
 
         with col2:
-            st.session_state.rag_settings['hybrid_vector_weight'] = st.slider(
+            # Auto-balancing hybrid search weights
+            st.markdown("**Hybrid Search Weights** (Auto-balanced to sum = 1.0)")
+
+            # Vector weight slider with callback
+            vector_weight = st.slider(
                 "Vector search weight",
                 min_value=0.0, max_value=1.0,
                 value=st.session_state.rag_settings['hybrid_vector_weight'],
                 step=0.1,
-                help="Weight given to vector search results in hybrid mode"
+                help="Weight given to vector search results (keyword weight auto-adjusts)",
+                key="vector_weight_slider"
             )
 
-            st.session_state.rag_settings['hybrid_keyword_weight'] = st.slider(
-                "Keyword search weight",
+            # Auto-calculate keyword weight
+            keyword_weight = 1.0 - vector_weight
+
+            # Update session state with balanced weights
+            st.session_state.rag_settings['hybrid_vector_weight'] = vector_weight
+            st.session_state.rag_settings['hybrid_keyword_weight'] = keyword_weight
+
+            # Display keyword weight (read-only)
+            st.slider(
+                "Keyword search weight (auto-calculated)",
                 min_value=0.0, max_value=1.0,
-                value=st.session_state.rag_settings['hybrid_keyword_weight'],
+                value=keyword_weight,
                 step=0.1,
-                help="Weight given to keyword search results in hybrid mode"
+                help="Automatically calculated as (1.0 - vector weight)",
+                disabled=True,
+                key="keyword_weight_display"
             )
+
+            # Show current balance
+            st.info(f"💡 **Current Balance**: Vector {vector_weight:.1f} + Keyword {keyword_weight:.1f} = {vector_weight + keyword_weight:.1f}")
 
     with tab2:
         st.markdown("### Language Model Configuration")
@@ -1050,11 +1069,13 @@ elif page == "⚙️ Settings":
     settings = st.session_state.rag_settings
 
     # Check for potentially problematic configurations
-    if settings['hybrid_vector_weight'] == 0 and settings['hybrid_keyword_weight'] == 0:
-        warnings.append("⚠️ Both vector and keyword weights are 0 - no search results will be returned")
+    # Note: Weight balance is automatically maintained, so no need to check for both weights being 0
 
-    if settings['enable_hybrid_search'] and settings['hybrid_keyword_weight'] > 0 and settings['hybrid_vector_weight'] == 0:
-        warnings.append("⚠️ Only keyword search enabled - may miss semantic matches")
+    if settings['enable_hybrid_search'] and settings['hybrid_vector_weight'] == 0:
+        warnings.append("⚠️ Vector search disabled (weight = 0) - only keyword search will be used, may miss semantic matches")
+
+    if settings['enable_hybrid_search'] and settings['hybrid_keyword_weight'] == 0:
+        warnings.append("💡 Keyword search disabled (weight = 0) - only vector search will be used, may miss exact term matches")
 
     if settings['temperature'] > 1.5:
         warnings.append("⚠️ High temperature (>1.5) may produce inconsistent responses")
