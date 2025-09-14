@@ -553,13 +553,16 @@ The application will open automatically in your browser at `http://localhost:850
 
 ### Settings Page
 1. Navigate to "⚙️ Settings" in the sidebar
-2. Configure search parameters (TOP_K, score thresholds, hybrid weights)
-3. Adjust model settings (temperature, max tokens, model selection)
-4. Toggle features (hybrid search, query enhancement)
-5. Customize UI preferences (show analysis default)
-6. Apply settings in real-time without restarting the application
-7. Export/import settings configurations as JSON files
-8. View configuration warnings for potentially problematic settings
+2. **Collection Management**: Select from available Qdrant collections with real-time discovery
+3. **Collection Information**: View collection points, vector size, and distance metrics
+4. Configure search parameters (TOP_K, score thresholds, hybrid weights)
+5. Adjust model settings (temperature, max tokens, model selection)
+6. Toggle features (hybrid search, query enhancement)
+7. Customize UI preferences (show analysis default)
+8. Apply settings in real-time without restarting the application
+9. Export/import settings configurations as JSON files
+10. View configuration warnings for potentially problematic settings
+11. **Troubleshooting**: Built-in connection diagnostics and collection validation
 
 ## 🧠 Advanced AI Pipeline Details
 
@@ -638,10 +641,12 @@ The system analyzes tickets using structured prompts to generate:
 
 ### Dynamic Settings Management
 - **Real-time Updates**: All configuration changes apply immediately without restart
+- **Collection Management**: Dynamic Qdrant collection discovery and switching
 - **Settings Validation**: Built-in warnings for potentially problematic configurations
 - **Import/Export**: JSON-based settings backup and sharing capabilities
 - **UI Integration**: Settings page with tabbed interface for different parameter categories
 - **Configuration Persistence**: Settings stored in session state and applied to pipeline
+- **Connection Diagnostics**: Real-time collection validation and troubleshooting
 - **Fallback Handling**: Graceful degradation when settings cause issues
 
 ### Data Pipeline Configuration
@@ -825,6 +830,8 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 6. **✅ Configurable Features**: Toggle enhancements based on needs
 7. **✅ Dynamic Settings Management**: Real-time configuration without restart
 8. **✅ Settings Import/Export**: JSON-based configuration sharing and backup
+9. **✅ Collection Management**: Real-time Qdrant collection discovery and switching
+10. **✅ Connection Diagnostics**: Built-in troubleshooting for collection issues
 
 ## 🤝 Contributing
 
