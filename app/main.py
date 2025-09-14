@@ -783,7 +783,7 @@ elif page == "⚙️ Settings":
             'score_threshold': 0.3,
             'hybrid_vector_weight': 1.0,
             'hybrid_keyword_weight': 0.0,
-            'collection_name': 'atlan_docs_enhanced',  # Default collection
+            'collection_name': 'atlan_docs',  # Default collection
 
             # Model Settings
             'max_tokens': 1000,
@@ -1111,7 +1111,7 @@ elif page == "⚙️ Settings":
                 'score_threshold': 0.3,
                 'hybrid_vector_weight': 1.0,
                 'hybrid_keyword_weight': 0.0,
-                'collection_name': 'atlan_docs_enhanced',
+                'collection_name': 'atlan_docs',
                 'max_tokens': 1000,
                 'temperature': 0.3,
                 'classification_temperature': 0.1,
