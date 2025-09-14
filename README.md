@@ -18,7 +18,7 @@ An advanced AI-powered customer support system that automatically classifies tic
 - **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
 - **Query Enhancement**: GPT-4o powered query expansion for technical terms (configurable)
 - **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
-- **Smart Reranking**: Weighted merging of vector and keyword search results (70/30 split)
+- **Smart Reranking**: Configurable weighted merging of vector and keyword search results
 - **Quality Metrics**: Chunk quality indicators including code detection and header analysis
 - **Real-time Configuration**: Dynamic settings updates without application restart
 - **Settings Import/Export**: JSON-based configuration backup and sharing
@@ -88,13 +88,13 @@ An advanced AI-powered customer support system that automatically classifies tic
 **Trade-off**: Configuration complexity vs. deployment flexibility and performance optimization.
 
 ### 4. Smart Reranking Strategy
-**Decision**: 70/30 weighted fusion of vector and BM25 results with intelligent deduplication.
+**Decision**: Configurable weighted fusion of vector and BM25 results with intelligent deduplication.
 
 **Why**:
-- **Balanced Relevance**: Vector search weighted higher for semantic understanding.
-- **Exact Match Boost**: BM25 results get significant weight for technical precision.
+- **Flexible Relevance**: Configurable weights allow optimization for different use cases.
+- **Exact Match Boost**: BM25 results receive configurable weight for technical precision.
 - **Deduplication**: Documents found by both methods receive relevance boost.
-- **Empirical Optimization**: 70/30 split tested for optimal balance in technical documentation.
+- **Empirical Optimization**: Default weights can be tuned based on specific documentation types.
 
 **Trade-off**: Algorithm complexity vs. superior result ranking and relevance.
 
@@ -349,6 +349,34 @@ MONGODB_URI=your_mongodb_atlas_connection_string
 FIRECRAWL_API_KEY=your_firecrawl_api_key
 ```
 
+### Environment Variables Reference
+
+**Required for Core Functionality:**
+- `OPENAI_API_KEY`: OpenAI API key for GPT-4o classification, response generation, and query enhancement
+  - Obtain from: https://platform.openai.com/api-keys
+  - Required permissions: GPT-4o model access and sufficient credits
+  - Usage: Classification, RAG responses, and optional query enhancement
+
+- `QDRANT_URI`: Qdrant Cloud vector database endpoint URL
+  - Format: `https://your-cluster-id.europe-west3-0.gcp.cloud.qdrant.io:6333`
+  - Obtain from: Qdrant Cloud dashboard after cluster creation
+  - Usage: Vector similarity search and hybrid search operations
+
+- `QDRANT_API_KEY`: Authentication key for Qdrant Cloud instance
+  - Obtain from: Qdrant Cloud cluster settings → API Keys
+  - Usage: Secure access to vector database operations
+
+- `MONGODB_URI`: MongoDB Atlas connection string
+  - Format: `mongodb+srv://username:password@cluster.mongodb.net/database`
+  - Obtain from: MongoDB Atlas dashboard → Connect → Application
+  - Usage: Document storage, metadata persistence, and backup operations
+
+**Optional (Data Pipeline Only):**
+- `FIRECRAWL_API_KEY`: Firecrawl API key for web scraping (only needed for custom data ingestion)
+  - Obtain from: https://www.firecrawl.dev/
+  - Usage: Automated web scraping of documentation sites
+  - Note: Pre-processed data is included, so this is optional for basic deployment
+
 ### 2. Install Dependencies
 
 **For deployment (Streamlit app):**
@@ -555,6 +583,25 @@ The application will open automatically in your browser at `http://localhost:850
 6. Use the "Conversation Management" sidebar to view memory stats or clear history
 7. Try sample questions or submit your own tickets
 
+### Analytics Page
+1. Navigate to "📈 Analytics" in the sidebar
+2. **Performance Metrics**: View real-time search performance statistics
+   - Response times for different search methods (vector, hybrid, keyword)
+   - Query enhancement usage and effectiveness metrics
+   - Average retrieval quality scores and user satisfaction
+3. **Usage Analytics**: Monitor system utilization patterns
+   - Daily/weekly query volume trends
+   - Most common topic classifications and routing decisions
+   - Memory usage statistics across active sessions
+4. **Search Method Distribution**: Analyze search strategy effectiveness
+   - Breakdown of vector vs. hybrid vs. keyword search usage
+   - Success rates and fallback patterns for different methods
+   - Quality metrics per search type with comparative analysis
+5. **System Health Monitoring**: Track infrastructure performance
+   - Qdrant collection performance and vector database health
+   - MongoDB connection status and query response times
+   - OpenAI API usage, rate limits, and cost optimization insights
+
 ## 💬 Conversational Memory Features
 
 ### Context-Aware Conversations
@@ -593,11 +640,32 @@ AI: "Yes, for your Snowflake-Atlan integration, consider..." [builds on conversa
 - **Session Management**: UUID-based session identification with Streamlit session state
 - **Context Integration**: Previous conversation included in RAG prompts for better responses
 
+### Memory Manager Implementation (`memory_manager.py`)
+The `ConversationMemoryManager` class provides advanced conversation memory features:
+
+**Core Features:**
+- **Session Isolation**: Each browser session maintains separate conversation history
+- **Automatic Cleanup**: Configurable auto-cleanup removes expired sessions (default: every 100 operations)
+- **Message Trimming**: Automatically limits conversations to last 20 messages per session
+- **Session Timeout**: Sessions expire after 60 minutes of inactivity
+- **Smart Trimming**: Preserves conversation pairs (human + AI messages) when trimming
+
+**Configuration Options:**
+- `max_messages_per_session`: Maximum messages per conversation (default: 20)
+- `session_timeout_minutes`: Session expiration time (default: 60 minutes)
+- `auto_cleanup_interval`: Operations between automatic cleanup (default: 100)
+
+**Memory Statistics:**
+- Active session count and total message tracking
+- Per-session message counts and last activity timestamps
+- Memory usage optimization with automatic garbage collection
+- Real-time memory health monitoring via the Analytics page
+
 ### Settings Page
 1. Navigate to "⚙️ Settings" in the sidebar
 2. **Collection Management**: Select from available Qdrant collections with real-time discovery
 3. **Collection Information**: View collection points, vector size, and distance metrics
-4. Configure search parameters (TOP_K, score thresholds, hybrid weights)
+4. Configure search parameters (TOP_K, score thresholds, configurable hybrid weights)
 5. Adjust model settings (temperature, max tokens, model selection)
 6. Toggle features (hybrid search, query enhancement)
 7. Customize UI preferences (show analysis default)
@@ -633,7 +701,7 @@ The system analyzes tickets using structured prompts to generate:
 #### 2. Hybrid Search System
 - **Vector Search**: Semantic similarity using FastEmbed BGE-small (384 dim)
 - **Keyword Search**: BM25 algorithm for exact term matching
-- **Fusion Strategy**: 70/30 weighted combination with smart deduplication
+- **Fusion Strategy**: Configurable weighted combination with smart deduplication
 - **Reranking**: Boosts documents found by both methods
 - **Fallback**: Graceful degradation to vector-only if BM25 fails
 
@@ -655,7 +723,7 @@ The system analyzes tickets using structured prompts to generate:
 ### Hybrid Search System
 - **Vector Search**: BAAI/bge-small-en-v1.5 (384 dimensions) with cosine similarity
 - **Keyword Search**: BM25 algorithm for exact term matching
-- **Search Fusion**: 70/30 weighted combination of vector and keyword results
+- **Search Fusion**: Configurable weighted combination of vector and keyword results
 - **Smart Reranking**: Deduplication and relevance scoring with boost for multi-method matches
 - **Score Threshold**: 0.3 minimum similarity for vector results
 - **Top-K Retrieval**: 5 most relevant chunks from hybrid results
@@ -683,8 +751,8 @@ The system analyzes tickets using structured prompts to generate:
 ### Advanced RAG Configuration (app/rag_pipeline.py)
 - `ENABLE_QUERY_ENHANCEMENT`: Toggle GPT-4o query expansion (default: False)
 - `ENABLE_HYBRID_SEARCH`: Toggle vector + BM25 hybrid search (default: True)
-- `HYBRID_VECTOR_WEIGHT`: Weight for vector search results (default: 1.0)
-- `HYBRID_KEYWORD_WEIGHT`: Weight for BM25 keyword results (default: 0.0)
+- `HYBRID_VECTOR_WEIGHT`: Configurable weight for vector search results (default: 1.0)
+- `HYBRID_KEYWORD_WEIGHT`: Configurable weight for BM25 keyword results (default: 0.0)
 - `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs_enhanced")
 - `SCORE_THRESHOLD`: Minimum similarity threshold (default: 0.3)
 - `TOP_K`: Number of search results to retrieve (default: 5)
@@ -775,7 +843,7 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 ### Advanced Response Quality Measures
 - **Multi-Method Retrieval**: Hybrid search combines semantic and keyword matching
 - **Query Enhancement**: GPT-4o expands technical terms for better retrieval (configurable)
-- **Smart Reranking**: 70/30 weighted fusion of vector and BM25 results
+- **Smart Reranking**: Configurable weighted fusion of vector and BM25 results
 - **Source Attribution**: All RAG responses include original documentation URLs
 - **Relevance Scoring**: Vector similarity + BM25 scoring with threshold 0.3
 - **Context Quality**: Top-5 chunks from hybrid results for comprehensive answers
@@ -807,6 +875,66 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 - Verify Qdrant Cloud instance is accessible
 - Check embedding dimensions match (384 for BGE-small)
 - Validate collection exists and has correct configuration
+
+## 🔄 Backup and Recovery Procedures
+
+### MongoDB Data Backup
+The system includes automatic backup mechanisms for data protection:
+
+**Automatic Backup Features:**
+- **Scraping Backup**: All scraped content is automatically saved as backup files during data collection
+- **Document Persistence**: MongoDB Atlas provides built-in automated backups (snapshots every 24 hours)
+- **Metadata Preservation**: Full document metadata, URLs, and timestamps stored for recovery
+
+**Manual Backup Procedures:**
+```bash
+# Export specific collection to JSON backup
+# Use MongoDB Compass or Atlas export functionality
+# Or use mongodump for command-line backup:
+mongodump --uri "your_mongodb_uri" --collection scraped_pages --db Cluster0 --out ./backup/
+
+# Export custom collection with date stamp
+mongodump --uri "your_mongodb_uri" --collection custom_docs --db Cluster0 --out ./backup/$(date +%Y%m%d)/
+```
+
+**Recovery Procedures:**
+```bash
+# Restore from MongoDB Atlas snapshot (via Atlas UI)
+# 1. Go to Atlas Dashboard → Clusters → Backup
+# 2. Select snapshot date and restore to new cluster
+# 3. Update MONGODB_URI in environment variables
+
+# Restore from local backup
+mongorestore --uri "your_mongodb_uri" --db Cluster0 ./backup/dump/Cluster0/
+```
+
+### Vector Database Recovery
+**Qdrant Collection Backup:**
+- Vector collections can be recreated using `qdrant_ingestion.py --recreate`
+- All embedding data is regenerated from MongoDB source documents
+- Collection metadata and configuration preserved in code
+
+**Recovery Process:**
+```bash
+# Full vector database recreation from MongoDB
+python qdrant_ingestion.py --recreate --qdrant-collection atlan_docs_enhanced
+
+# Partial recovery for specific sources
+python qdrant_ingestion.py --source-url "https://docs.atlan.com" --recreate
+
+# Verify collection health after recovery
+python -c "
+from app.rag_pipeline import RAGPipeline
+pipeline = RAGPipeline()
+print(f'Collection status: {pipeline.qdrant_client.get_collection(\"atlan_docs_enhanced\")}')"
+```
+
+### Disaster Recovery Checklist
+1. **Environment Variables**: Ensure `.env` files are backed up securely
+2. **MongoDB**: Verify Atlas automated backups are enabled
+3. **Source Code**: Regular git commits with configuration files
+4. **API Keys**: Secure storage of all service credentials
+5. **Documentation**: Keep setup instructions updated for recovery scenarios
 
 ### Application Issues
 
@@ -885,6 +1013,47 @@ python qdrant_ingestion.py --collection internal_docs --qdrant-collection intern
 8. **✅ Settings Import/Export**: JSON-based configuration sharing and backup
 9. **✅ Collection Management**: Real-time Qdrant collection discovery and switching
 10. **✅ Connection Diagnostics**: Built-in troubleshooting for collection issues
+
+## 🛠️ Developer Utilities
+
+### Database Utility Functions (`utils.py`)
+The project includes utility functions for MongoDB operations in the data pipeline:
+
+**Core Functions:**
+- `get_mongodb_client()`: Creates authenticated MongoDB client using environment variables
+  - Returns: `MongoClient` instance configured with `MONGODB_URI`
+  - Handles connection string validation and error handling
+  - Usage: For direct database operations and debugging
+
+- `get_mongodb_collection(database_name, collection_name)`: Gets MongoDB client, database, and collection
+  - Args:
+    - `database_name`: Target database (default: "Cluster0")
+    - `collection_name`: Target collection (default: "scraped_pages")
+  - Returns: Tuple of `(client, database, collection)`
+  - Usage: For pipeline scripts that need database access
+
+- `close_mongodb_client(client)`: Safely closes MongoDB connections
+  - Args: `client` - MongoDB client instance to close
+  - Includes error handling for cleanup operations
+  - Usage: Ensures proper resource cleanup in scripts
+
+**Constants:**
+- `DEFAULT_DATABASE = "Cluster0"`: Default MongoDB database name
+- `DEFAULT_COLLECTION = "scraped_pages"`: Default collection for scraped content
+
+**Example Usage:**
+```python
+from utils import get_mongodb_collection, close_mongodb_client
+
+# Get database components
+client, db, collection = get_mongodb_collection("Cluster0", "custom_docs")
+
+# Perform operations
+documents = collection.find({"source_url": {"$regex": "docs.atlan.com"}})
+
+# Cleanup
+close_mongodb_client(client)
+```
 
 ## 🤝 Contributing
 
