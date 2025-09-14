@@ -6,10 +6,7 @@ from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 from openai import OpenAI
 from rank_bm25 import BM25Okapi
-import sys
 
-# Add parent directory to path to import memory_manager
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from memory_manager import get_memory_manager
 
 load_dotenv()
