@@ -402,6 +402,9 @@ python scrape.py https://developer.atlan.com --limit 1000
 # Custom scraping examples
 python scrape.py https://your-docs.com --limit 500 --collection custom_docs
 ```
+
+> **Note**: The limits above (3000 for docs.atlan.com, 1000 for developers.atlan.com) are set higher than the actual page counts (~1078 and ~611 respectively) to ensure complete data scraping during development. You can use lower limits based on your needs - the crawler will stop when all available pages are scraped regardless of the limit setting.
+
 *All scraped content automatically stored in MongoDB with metadata and backup files.*
 
 **Step 2: Enhanced Vector Database Ingestion**
