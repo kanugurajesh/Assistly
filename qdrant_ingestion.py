@@ -11,7 +11,8 @@ import re
 from datetime import datetime
 from utils import get_mongodb_collection, close_mongodb_client
 
-load_dotenv()
+# Load environment variables from app/.env for deployment-ready structure
+load_dotenv(os.path.join(os.path.dirname(__file__), 'app', '.env'))
 
 MONGODB_DB = "Cluster0"
 MONGODB_COLLECTION = "atlan_developer_docs"

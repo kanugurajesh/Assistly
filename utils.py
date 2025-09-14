@@ -8,7 +8,8 @@ from pymongo.database import Database
 from pymongo.collection import Collection
 from dotenv import load_dotenv
 
-load_dotenv()
+# Load environment variables from app/.env for deployment-ready structure
+load_dotenv(os.path.join(os.path.dirname(__file__), 'app', '.env'))
 
 # Configuration constants
 DEFAULT_DATABASE = "Cluster0"
