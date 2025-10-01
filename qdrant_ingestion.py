@@ -8,7 +8,8 @@ from langchain.text_splitter import RecursiveCharacterTextSplitter
 from fastembed import TextEmbedding
 import time
 import re
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from utils import get_mongodb_collection, close_mongodb_client
 
 # Load environment variables from app/.env for deployment-ready structure
@@ -29,11 +30,42 @@ VECTOR_SIZE = 384  # BGE small model vector size
 CHUNK_SIZE = 1200
 CHUNK_OVERLAP = 200
 BATCH_SIZE = 50  # Embedding and ingestion batch size
-SCROLL_LIMIT = 10000  # Qdrant scroll limit for existing IDs
+SCROLL_BATCH_SIZE = 1000  # Batch size for paginated scroll
 PROGRESS_INTERVAL = 10  # Print progress every N documents
+
+# Timestamp tracking configuration
+CONFIG_DIR = Path("config")
+LAST_INGESTION_FILE = CONFIG_DIR / "last_ingestion.txt"
+LAST_FULL_REINDEX_FILE = CONFIG_DIR / "last_full_reindex.txt"
+FULL_REINDEX_INTERVAL_DAYS = 7
 
 # Initialize FastEmbed model
 embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
+
+def read_timestamp(file_path: Path) -> datetime:
+    """Read timestamp from file, return epoch if doesn't exist"""
+    try:
+        if file_path.exists():
+            timestamp_str = file_path.read_text().strip()
+            return datetime.fromisoformat(timestamp_str)
+    except Exception as e:
+        print(f"Warning: Could not read timestamp from {file_path}: {e}")
+    # Default to epoch if file doesn't exist or has error
+    return datetime(1970, 1, 1, tzinfo=timezone.utc)
+
+def write_timestamp(file_path: Path, timestamp: datetime) -> None:
+    """Write timestamp to file"""
+    try:
+        CONFIG_DIR.mkdir(exist_ok=True)
+        file_path.write_text(timestamp.isoformat())
+    except Exception as e:
+        print(f"Warning: Could not write timestamp to {file_path}: {e}")
+
+def should_do_full_reindex() -> bool:
+    """Check if it's time for weekly full reindex"""
+    last_full = read_timestamp(LAST_FULL_REINDEX_FILE)
+    days_since = (datetime.now(timezone.utc) - last_full).days
+    return days_since >= FULL_REINDEX_INTERVAL_DAYS
 
 def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bool:
     """Create or check Qdrant collection"""
@@ -188,100 +220,183 @@ def generate_embeddings(texts: List[str]) -> List[List[float]]:
         print(f"Using zero vectors as fallback for {len(texts)} texts")
         return [[0.0] * VECTOR_SIZE for _ in texts]
 
-def get_existing_mongodb_ids(collection_name: str) -> set:
-    """Get MongoDB IDs that are already in Qdrant to avoid duplicates"""
+def get_existing_mongodb_ids_paginated(collection_name: str) -> set:
+    """Get MongoDB IDs that are already in Qdrant using paginated scroll to handle large collections"""
+    existing_ids = set()
+    offset = None
+    batch_count = 0
+
     try:
-        # Get all points from Qdrant with mongodb_id
-        scroll_result = qdrant_client.scroll(
-            collection_name=collection_name,
-            limit=SCROLL_LIMIT,
-            with_payload=["mongodb_id"]
-        )
+        while True:
+            scroll_result = qdrant_client.scroll(
+                collection_name=collection_name,
+                limit=SCROLL_BATCH_SIZE,
+                offset=offset,
+                with_payload=["mongodb_id"]
+            )
 
-        existing_ids = set()
-        for point in scroll_result[0]:
-            mongodb_id = point.payload.get("mongodb_id")
-            if mongodb_id:
-                existing_ids.add(mongodb_id)
+            points = scroll_result[0]
+            next_offset = scroll_result[1]
 
+            # Process batch
+            for point in points:
+                mongodb_id = point.payload.get("mongodb_id")
+                if mongodb_id:
+                    existing_ids.add(mongodb_id)
+
+            batch_count += 1
+            if batch_count % 10 == 0:
+                print(f"  Scrolled {len(existing_ids)} IDs so far...")
+
+            # Break if no more results
+            if next_offset is None or len(points) == 0:
+                break
+
+            offset = next_offset
+
+        print(f"✅ Found {len(existing_ids)} existing vectors in Qdrant (checked {batch_count} batches)")
         return existing_ids
+
     except Exception as e:
         print(f"Warning: Could not check existing vectors: {e}")
         return set()
 
-def process_mongodb_documents(collection, source_url_filter: Optional[str] = None, incremental: bool = True, qdrant_collection_name: str = "atlan_docs") -> List[Dict]:
-    """Load documents from MongoDB and process them with incremental support
+def process_incremental(collection, last_ingestion_time: datetime, source_url_filter: Optional[str] = None) -> List[Dict]:
+    """Fast timestamp-based incremental processing
 
     Args:
         collection: MongoDB collection object
+        last_ingestion_time: Only process documents after this timestamp
         source_url_filter: Optional URL filter for documents
-        incremental: Whether to skip already processed documents
-        qdrant_collection_name: Name of the Qdrant collection
 
     Returns:
         List of processed document chunks
     """
-    print("Loading documents from MongoDB...")
+    print("⚡ Running incremental update...")
+    print(f"📅 Processing documents crawled after: {last_ingestion_time.isoformat()}")
+
+    # Build query filter
+    query_filter = {"crawled_at": {"$gt": last_ingestion_time}}
+    if source_url_filter:
+        query_filter["source_url"] = source_url_filter
+        print(f"🌐 Filtering by source URL: {source_url_filter}")
+
+    # Query only new documents
+    new_docs = list(collection.find(query_filter))
+    print(f"📄 Found {len(new_docs)} new documents to process")
+
+    if not new_docs:
+        return []
+
+    # Process new documents
+    all_chunks = []
+    for doc_idx, doc in enumerate(new_docs):
+        try:
+            markdown_content = doc.get("markdown", "")
+            metadata = doc.get("metadata", {})
+
+            if not markdown_content.strip():
+                continue
+
+            # Determine doc_type based on source URL
+            source_url = doc.get("source_url", "")
+            doc_type = "developer" if "developer.atlan.com" in source_url else "docs"
+
+            # Chunk the document
+            chunks = chunk_text(markdown_content, metadata)
+
+            # Update doc_type for all chunks
+            for chunk in chunks:
+                chunk["doc_type"] = doc_type
+                chunk["mongodb_id"] = str(doc["_id"])
+
+            all_chunks.extend(chunks)
+
+            if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(new_docs) - 1:
+                print(f"Processed {doc_idx + 1}/{len(new_docs)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
+
+        except Exception as e:
+            print(f"Error processing document {doc_idx}: {e}")
+            continue
+
+    print(f"✅ Total chunks created from incremental update: {len(all_chunks)}")
+    return all_chunks
+
+def process_full_reindex(collection, qdrant_collection_name: str, source_url_filter: Optional[str] = None) -> List[Dict]:
+    """Complete reindex with duplicate detection using scroll
+
+    Args:
+        collection: MongoDB collection object
+        qdrant_collection_name: Name of the Qdrant collection
+        source_url_filter: Optional URL filter for documents
+
+    Returns:
+        List of processed document chunks (only for missing documents)
+    """
+    print("🔄 Running weekly full reindex...")
+
+    # Get existing vectors from Qdrant
+    existing_ids = get_existing_mongodb_ids_paginated(qdrant_collection_name)
 
     # Build query filter
     query_filter = {}
     if source_url_filter:
         query_filter["source_url"] = source_url_filter
-        print(f"Filtering by source URL: {source_url_filter}")
+        print(f"🌐 Filtering by source URL: {source_url_filter}")
 
-    # Get all documents from scraped_pages collection
-    documents = list(collection.find(query_filter))
-    print(f"Found {len(documents)} documents in MongoDB")
+    # Get all MongoDB documents
+    all_docs = list(collection.find(query_filter))
+    print(f"📄 Found {len(all_docs)} documents in MongoDB")
 
-    if not documents:
+    if not all_docs:
         print("No documents found in MongoDB. Please run scrape.py first.")
         return []
 
-    # Check for existing vectors if incremental is enabled
-    existing_mongodb_ids = set()
-    if incremental:
-        existing_mongodb_ids = get_existing_mongodb_ids(qdrant_collection_name)
-        print(f"Found {len(existing_mongodb_ids)} existing vectors in Qdrant")
-    
+    # Find missing documents (in MongoDB but not in Qdrant)
+    docs_to_process = []
+    for doc in all_docs:
+        doc_id = str(doc["_id"])
+        if doc_id not in existing_ids:
+            docs_to_process.append(doc)
+
+    print(f"🔍 Found {len(docs_to_process)} documents to re-ingest")
+    print(f"⏭️ Skipping {len(all_docs) - len(docs_to_process)} already-indexed documents")
+
+    if not docs_to_process:
+        return []
+
+    # Process missing documents
     all_chunks = []
-    skipped_count = 0
-    
-    for doc_idx, doc in enumerate(documents):
-        # Skip if already processed (incremental mode)
-        doc_id_str = str(doc["_id"])
-        if incremental and doc_id_str in existing_mongodb_ids:
-            skipped_count += 1
-            continue
+    for doc_idx, doc in enumerate(docs_to_process):
         try:
             markdown_content = doc.get("markdown", "")
             metadata = doc.get("metadata", {})
-            
+
             if not markdown_content.strip():
                 continue
-            
+
             # Determine doc_type based on source URL
             source_url = doc.get("source_url", "")
             doc_type = "developer" if "developer.atlan.com" in source_url else "docs"
-            
+
             # Chunk the document
             chunks = chunk_text(markdown_content, metadata)
-            
+
             # Update doc_type for all chunks
             for chunk in chunks:
                 chunk["doc_type"] = doc_type
                 chunk["mongodb_id"] = str(doc["_id"])
-            
+
             all_chunks.extend(chunks)
-            
-            if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(documents) - 1:
-                print(f"Processed {doc_idx + 1}/{len(documents)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
-            
+
+            if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(docs_to_process) - 1:
+                print(f"Processed {doc_idx + 1}/{len(docs_to_process)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
+
         except Exception as e:
             print(f"Error processing document {doc_idx}: {e}")
             continue
-    
-    print(f"Total chunks created: {len(all_chunks)}")
-    print(f"Skipped existing documents: {skipped_count}")
+
+    print(f"✅ Total chunks created from full reindex: {len(all_chunks)}")
     return all_chunks
 
 def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
@@ -362,22 +477,24 @@ def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
     print(f"Estimated successful points: {successful_batches * BATCH_SIZE}")
 
 def main() -> None:
-    """Main ingestion pipeline"""
+    """Main ingestion pipeline with hybrid timestamp + weekly full reindex"""
     parser = argparse.ArgumentParser(description="Ingest MongoDB documents to Qdrant vector database")
     parser.add_argument("--source-url", help="Filter by source URL (e.g., https://docs.atlan.com)")
     parser.add_argument("--recreate", action="store_true", help="Recreate Qdrant collection (deletes existing data)")
-    parser.add_argument("--no-incremental", action="store_true", help="Disable incremental processing (process all documents)")
     parser.add_argument("--collection", default="atlan_developer_docs", help="MongoDB collection name (default: atlan_developer_docs)")
     parser.add_argument("--qdrant-collection", default="atlan_docs", help="Qdrant collection name (default: atlan_docs)")
+    parser.add_argument("--force-full-reindex", action="store_true", help="Force full reindex regardless of schedule")
+    parser.add_argument("--force-incremental", action="store_true", help="Force incremental mode even if full reindex is scheduled")
 
     args = parser.parse_args()
-    
+
+    current_time = datetime.now(timezone.utc)
+
     print("🚀 Starting MongoDB to Qdrant ingestion pipeline...")
     if args.source_url:
         print(f"🌐 Source URL filter: {args.source_url}")
     print(f"🗂️ MongoDB collection: {args.collection}")
     print(f"🗃️ Qdrant collection: {args.qdrant_collection}")
-    print(f"🔄 Incremental processing: {not args.no_incremental}")
     print(f"♾️ Recreate collection: {args.recreate}")
     print("=" * 50)
     
@@ -390,24 +507,64 @@ def main() -> None:
     # Step 1: Create Qdrant collection
     if not create_qdrant_collection(collection_name=args.qdrant_collection, recreate=args.recreate):
         print("Failed to create Qdrant collection. Exiting.")
+        close_mongodb_client(mongo_client)
         return
 
-    # Step 2: Process MongoDB documents
+    # Step 2: Determine processing mode
     start_time = time.time()
-    chunks = process_mongodb_documents(
-        collection=collection,
-        source_url_filter=args.source_url,
-        incremental=not args.no_incremental,
-        qdrant_collection_name=args.qdrant_collection
-    )
-    
-    if not chunks:
-        print("No chunks to process. Exiting.")
-        return
-    
+
+    # Determine which mode to use
+    if args.force_full_reindex:
+        use_full_reindex = True
+        print("🔧 Forced full reindex mode (--force-full-reindex)")
+    elif args.force_incremental:
+        use_full_reindex = False
+        print("🔧 Forced incremental mode (--force-incremental)")
+    elif args.recreate:
+        use_full_reindex = False
+        print("🔧 Using incremental mode (collection was recreated)")
+    else:
+        use_full_reindex = should_do_full_reindex()
+        if use_full_reindex:
+            last_full = read_timestamp(LAST_FULL_REINDEX_FILE)
+            days_since = (current_time - last_full).days
+            print(f"📅 Automatic mode selection: Full reindex (last full reindex was {days_since} days ago)")
+        else:
+            last_ingestion = read_timestamp(LAST_INGESTION_FILE)
+            hours_since = (current_time - last_ingestion).total_seconds() / 3600
+            print(f"📅 Automatic mode selection: Incremental update (last run was {hours_since:.1f} hours ago)")
+
+    # Process documents based on mode
+    if use_full_reindex:
+        chunks = process_full_reindex(
+            collection=collection,
+            qdrant_collection_name=args.qdrant_collection,
+            source_url_filter=args.source_url
+        )
+    else:
+        last_ingestion = read_timestamp(LAST_INGESTION_FILE)
+        chunks = process_incremental(
+            collection=collection,
+            last_ingestion_time=last_ingestion,
+            source_url_filter=args.source_url
+        )
+
     processing_time = time.time() - start_time
+
+    if not chunks:
+        print("✅ No new chunks to process.")
+        print(f"⏱️ Check completed in {processing_time:.2f} seconds")
+
+        # Update timestamps even if no chunks
+        write_timestamp(LAST_INGESTION_FILE, current_time)
+        if use_full_reindex:
+            write_timestamp(LAST_FULL_REINDEX_FILE, current_time)
+
+        close_mongodb_client(mongo_client)
+        return
+
     print(f"⏱️ Document processing completed in {processing_time:.2f} seconds")
-    
+
     # Step 3: Ingest to Qdrant
     print(f"🚀 Starting vector ingestion for {len(chunks)} chunks...")
     start_time = time.time()
@@ -415,14 +572,21 @@ def main() -> None:
     ingestion_time = time.time() - start_time
     print(f"⏱️ Vector ingestion completed in {ingestion_time:.2f} seconds")
 
-    # Step 4: Verify ingestion
+    # Step 4: Update timestamps
+    write_timestamp(LAST_INGESTION_FILE, current_time)
+    if use_full_reindex:
+        write_timestamp(LAST_FULL_REINDEX_FILE, current_time)
+        print(f"📝 Updated last_full_reindex timestamp")
+    print(f"📝 Updated last_ingestion timestamp")
+
+    # Step 5: Verify ingestion
     info = qdrant_client.get_collection(args.qdrant_collection)
     print(f"\n✅ Ingestion complete!")
     print(f"Collection: {args.qdrant_collection}")
     print(f"Total points: {info.points_count}")
     print(f"Vector size: {info.config.params.vectors.size}")
     print(f"Total processing time: {(processing_time + ingestion_time):.2f} seconds")
-    
+
     # Close connections
     close_mongodb_client(mongo_client)
 
