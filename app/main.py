@@ -2,6 +2,10 @@ import streamlit as st
 import os
 import json
 import time
+import logging
+
+# Configure logging
+logger = logging.getLogger(__name__)
 
 # Import from local rag_pipeline module in the same directory
 try:
@@ -263,7 +267,7 @@ def determine_response_type(classification):
 
     # Handle empty or invalid classification
     if not classified_topics or not isinstance(classified_topics, list):
-        print(f"Warning: Invalid or empty classification topics: {classified_topics}")
+        logger.warning(f"Invalid or empty classification topics: {classified_topics}")
         return {
             'should_use_rag': False,
             'response_type': 'routing',
@@ -298,10 +302,10 @@ def determine_response_type(classification):
         reason = f"No RAG topic match found. Classified as: {', '.join(classified_topics)}"
 
     # Log decision for debugging
-    print(f"Routing Decision: {reason}")
-    print(f"Classified topics: {classified_topics}")
-    print(f"RAG topics: {rag_topics}")
-    print(f"Matched topics: {matched_topics}")
+    logger.info(f"Routing Decision: {reason}")
+    logger.debug(f"Classified topics: {classified_topics}")
+    logger.debug(f"RAG topics: {rag_topics}")
+    logger.debug(f"Matched topics: {matched_topics}")
 
     return {
         'should_use_rag': should_use_rag,
@@ -383,7 +387,7 @@ def process_sample_question(sample_text):
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
-                print(f"Error processing sample question: {str(e)}")
+                logger.error(f"Error processing sample question: {str(e)}", exc_info=True)
                 # Generate more specific error messages
                 if "classification" in str(e).lower():
                     error_msg = "I'm having trouble analyzing your question right now. This might be a temporary issue with our classification system. Please try again in a moment."
@@ -811,7 +815,7 @@ elif page == "💬 Chat Agent":
                     st.session_state.messages.append(assistant_message)
 
                 except Exception as e:
-                    print(f"Error processing chat message: {str(e)}")
+                    logger.error(f"Error processing chat message: {str(e)}", exc_info=True)
                     st.error(f"Error processing message: {str(e)}")
                     # Generate more specific error messages
                     if "classification" in str(e).lower():
