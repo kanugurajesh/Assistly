@@ -1,5 +1,7 @@
 import os
 import argparse
+import logging
+import sys
 from typing import List, Dict, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -14,6 +16,44 @@ from utils import get_mongodb_collection, close_mongodb_client
 
 # Load environment variables from app/.env for deployment-ready structure
 load_dotenv(os.path.join(os.path.dirname(__file__), 'app', '.env'))
+
+# Configure logging
+def setup_logging(log_level: str = "INFO") -> logging.Logger:
+    """Configure structured logging with console and file handlers"""
+    logger = logging.getLogger(__name__)
+    logger.setLevel(getattr(logging, log_level.upper(), logging.INFO))
+
+    # Remove existing handlers
+    logger.handlers.clear()
+
+    # Console handler with colored output
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_format = logging.Formatter(
+        '%(asctime)s - %(levelname)s - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    console_handler.setFormatter(console_format)
+    logger.addHandler(console_handler)
+
+    # File handler for detailed logs
+    log_dir = Path("logs")
+    log_dir.mkdir(exist_ok=True)
+    file_handler = logging.FileHandler(
+        log_dir / f"qdrant_ingestion_{datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
+    )
+    file_handler.setLevel(logging.DEBUG)
+    file_format = logging.Formatter(
+        '%(asctime)s - %(name)s - %(levelname)s - %(funcName)s:%(lineno)d - %(message)s',
+        datefmt='%Y-%m-%d %H:%M:%S'
+    )
+    file_handler.setFormatter(file_format)
+    logger.addHandler(file_handler)
+
+    return logger
+
+# Initialize logger
+logger = setup_logging()
 
 MONGODB_DB = "Cluster0"
 MONGODB_COLLECTION = "atlan_developer_docs"
@@ -49,7 +89,7 @@ def read_timestamp(file_path: Path) -> datetime:
             timestamp_str = file_path.read_text().strip()
             return datetime.fromisoformat(timestamp_str)
     except Exception as e:
-        print(f"Warning: Could not read timestamp from {file_path}: {e}")
+        logger.warning(f"Could not read timestamp from {file_path}: {e}")
     # Default to epoch if file doesn't exist or has error
     return datetime(1970, 1, 1, tzinfo=timezone.utc)
 
@@ -58,8 +98,9 @@ def write_timestamp(file_path: Path, timestamp: datetime) -> None:
     try:
         CONFIG_DIR.mkdir(exist_ok=True)
         file_path.write_text(timestamp.isoformat())
+        logger.debug(f"Wrote timestamp to {file_path}: {timestamp.isoformat()}")
     except Exception as e:
-        print(f"Warning: Could not write timestamp to {file_path}: {e}")
+        logger.warning(f"Could not write timestamp to {file_path}: {e}")
 
 def should_do_full_reindex() -> bool:
     """Check if it's time for weekly full reindex"""
@@ -77,10 +118,10 @@ def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bo
         if collection_exists and recreate:
             # Delete existing collection if recreate is True
             qdrant_client.delete_collection(collection_name=collection_name)
-            print(f"Deleted existing collection: {collection_name}")
+            logger.info(f"Deleted existing collection: {collection_name}")
             collection_exists = False
         elif collection_exists:
-            print(f"Collection '{collection_name}' already exists")
+            logger.info(f"Collection '{collection_name}' already exists")
             return True
 
         if not collection_exists:
@@ -89,11 +130,11 @@ def create_qdrant_collection(collection_name: str, recreate: bool = False) -> bo
                 collection_name=collection_name,
                 vectors_config=VectorParams(size=VECTOR_SIZE, distance=Distance.COSINE),
             )
-            print(f"Created collection: {collection_name}")
+            logger.info(f"Created collection: {collection_name}")
 
         return True
     except Exception as e:
-        print(f"Error creating collection: {e}")
+        logger.error(f"Error creating collection: {e}", exc_info=True)
         return False
 
 def preserve_code_blocks(text: str) -> str:
@@ -171,53 +212,53 @@ def chunk_text(text: str, metadata: Dict) -> List[Dict]:
             }
             chunked_docs.append(chunk_doc)
 
-    print(f"Created {len(chunked_docs)} chunks from '{metadata.get('title', 'Unknown')}' ({len([c for c in chunked_docs if c['has_code']])} with code, {len([c for c in chunked_docs if c['has_headers']])} with headers)")
+    logger.info(f"Created {len(chunked_docs)} chunks from '{metadata.get('title', 'Unknown')}' ({len([c for c in chunked_docs if c['has_code']])} with code, {len([c for c in chunked_docs if c['has_headers']])} with headers)")
     return chunked_docs
 
 def generate_embeddings(texts: List[str]) -> List[List[float]]:
     """Generate embeddings using FastEmbed with improved progress tracking and error handling"""
     if not texts:
         return []
-    
+
     try:
-        print(f"Generating embeddings for {len(texts)} chunks using FastEmbed...")
-        print("Note: First run may take time to download the model...")
-        
+        logger.info(f"Generating embeddings for {len(texts)} chunks using FastEmbed...")
+        logger.info("Note: First run may take time to download the model...")
+
         # Process in smaller batches for progress tracking and memory management
         all_embeddings = []
         start_time = time.time()
-        
+
         for i in range(0, len(texts), BATCH_SIZE):
             batch_start_time = time.time()
             batch_texts = texts[i:i + BATCH_SIZE]
-            
+
             try:
                 batch_embeddings = list(embedding_model.embed(batch_texts))
                 all_embeddings.extend(batch_embeddings)
-                
+
                 progress = min(i + BATCH_SIZE, len(texts))
                 batch_time = time.time() - batch_start_time
                 elapsed_time = time.time() - start_time
-                
+
                 # Estimate remaining time
                 if progress > 0:
                     eta = (elapsed_time / progress) * (len(texts) - progress)
-                    print(f"Progress: {progress}/{len(texts)} embeddings ({progress/len(texts)*100:.1f}%) | Batch time: {batch_time:.2f}s | ETA: {eta:.1f}s")
-                
+                    logger.info(f"Progress: {progress}/{len(texts)} embeddings ({progress/len(texts)*100:.1f}%) | Batch time: {batch_time:.2f}s | ETA: {eta:.1f}s")
+
             except Exception as batch_error:
-                print(f"Error processing batch {i//BATCH_SIZE + 1}: {batch_error}")
+                logger.error(f"Error processing batch {i//BATCH_SIZE + 1}: {batch_error}")
                 # Add zero vectors for failed batch
                 fallback_embeddings = [[0.0] * VECTOR_SIZE for _ in batch_texts]
                 all_embeddings.extend(fallback_embeddings)
-        
+
         total_time = time.time() - start_time
-        print(f"Successfully generated {len(all_embeddings)} embeddings in {total_time:.2f} seconds")
+        logger.info(f"Successfully generated {len(all_embeddings)} embeddings in {total_time:.2f} seconds")
         return all_embeddings
-        
+
     except Exception as e:
-        print(f"Critical error generating embeddings: {e}")
+        logger.error(f"Critical error generating embeddings: {e}", exc_info=True)
         # Fallback to zero vectors for all texts
-        print(f"Using zero vectors as fallback for {len(texts)} texts")
+        logger.warning(f"Using zero vectors as fallback for {len(texts)} texts")
         return [[0.0] * VECTOR_SIZE for _ in texts]
 
 def get_existing_mongodb_ids_paginated(collection_name: str) -> set:
@@ -246,7 +287,7 @@ def get_existing_mongodb_ids_paginated(collection_name: str) -> set:
 
             batch_count += 1
             if batch_count % 10 == 0:
-                print(f"  Scrolled {len(existing_ids)} IDs so far...")
+                logger.debug(f"Scrolled {len(existing_ids)} IDs so far...")
 
             # Break if no more results
             if next_offset is None or len(points) == 0:
@@ -254,11 +295,11 @@ def get_existing_mongodb_ids_paginated(collection_name: str) -> set:
 
             offset = next_offset
 
-        print(f"✅ Found {len(existing_ids)} existing vectors in Qdrant (checked {batch_count} batches)")
+        logger.info(f"Found {len(existing_ids)} existing vectors in Qdrant (checked {batch_count} batches)")
         return existing_ids
 
     except Exception as e:
-        print(f"Warning: Could not check existing vectors: {e}")
+        logger.warning(f"Could not check existing vectors: {e}")
         return set()
 
 def process_incremental(collection, last_ingestion_time: datetime, source_url_filter: Optional[str] = None) -> List[Dict]:
@@ -272,18 +313,18 @@ def process_incremental(collection, last_ingestion_time: datetime, source_url_fi
     Returns:
         List of processed document chunks
     """
-    print("⚡ Running incremental update...")
-    print(f"📅 Processing documents crawled after: {last_ingestion_time.isoformat()}")
+    logger.info("Running incremental update...")
+    logger.info(f"Processing documents crawled after: {last_ingestion_time.isoformat()}")
 
     # Build query filter
     query_filter = {"crawled_at": {"$gt": last_ingestion_time}}
     if source_url_filter:
         query_filter["source_url"] = source_url_filter
-        print(f"🌐 Filtering by source URL: {source_url_filter}")
+        logger.info(f"Filtering by source URL: {source_url_filter}")
 
     # Query only new documents
     new_docs = list(collection.find(query_filter))
-    print(f"📄 Found {len(new_docs)} new documents to process")
+    logger.info(f"Found {len(new_docs)} new documents to process")
 
     if not new_docs:
         return []
@@ -313,13 +354,13 @@ def process_incremental(collection, last_ingestion_time: datetime, source_url_fi
             all_chunks.extend(chunks)
 
             if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(new_docs) - 1:
-                print(f"Processed {doc_idx + 1}/{len(new_docs)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
+                logger.info(f"Processed {doc_idx + 1}/{len(new_docs)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
 
         except Exception as e:
-            print(f"Error processing document {doc_idx}: {e}")
+            logger.error(f"Error processing document {doc_idx}: {e}")
             continue
 
-    print(f"✅ Total chunks created from incremental update: {len(all_chunks)}")
+    logger.info(f"Total chunks created from incremental update: {len(all_chunks)}")
     return all_chunks
 
 def process_full_reindex(collection, qdrant_collection_name: str, source_url_filter: Optional[str] = None) -> List[Dict]:
@@ -333,7 +374,7 @@ def process_full_reindex(collection, qdrant_collection_name: str, source_url_fil
     Returns:
         List of processed document chunks (only for missing documents)
     """
-    print("🔄 Running weekly full reindex...")
+    logger.info("Running weekly full reindex...")
 
     # Get existing vectors from Qdrant
     existing_ids = get_existing_mongodb_ids_paginated(qdrant_collection_name)
@@ -342,14 +383,14 @@ def process_full_reindex(collection, qdrant_collection_name: str, source_url_fil
     query_filter = {}
     if source_url_filter:
         query_filter["source_url"] = source_url_filter
-        print(f"🌐 Filtering by source URL: {source_url_filter}")
+        logger.info(f"Filtering by source URL: {source_url_filter}")
 
     # Get all MongoDB documents
     all_docs = list(collection.find(query_filter))
-    print(f"📄 Found {len(all_docs)} documents in MongoDB")
+    logger.info(f"Found {len(all_docs)} documents in MongoDB")
 
     if not all_docs:
-        print("No documents found in MongoDB. Please run scrape.py first.")
+        logger.warning("No documents found in MongoDB. Please run scrape.py first.")
         return []
 
     # Find missing documents (in MongoDB but not in Qdrant)
@@ -359,8 +400,8 @@ def process_full_reindex(collection, qdrant_collection_name: str, source_url_fil
         if doc_id not in existing_ids:
             docs_to_process.append(doc)
 
-    print(f"🔍 Found {len(docs_to_process)} documents to re-ingest")
-    print(f"⏭️ Skipping {len(all_docs) - len(docs_to_process)} already-indexed documents")
+    logger.info(f"Found {len(docs_to_process)} documents to re-ingest")
+    logger.info(f"Skipping {len(all_docs) - len(docs_to_process)} already-indexed documents")
 
     if not docs_to_process:
         return []
@@ -390,22 +431,22 @@ def process_full_reindex(collection, qdrant_collection_name: str, source_url_fil
             all_chunks.extend(chunks)
 
             if (doc_idx + 1) % PROGRESS_INTERVAL == 0 or doc_idx == len(docs_to_process) - 1:
-                print(f"Processed {doc_idx + 1}/{len(docs_to_process)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
+                logger.info(f"Processed {doc_idx + 1}/{len(docs_to_process)} documents: {metadata.get('title', 'Untitled')} ({len(chunks)} chunks)")
 
         except Exception as e:
-            print(f"Error processing document {doc_idx}: {e}")
+            logger.error(f"Error processing document {doc_idx}: {e}")
             continue
 
-    print(f"✅ Total chunks created from full reindex: {len(all_chunks)}")
+    logger.info(f"Total chunks created from full reindex: {len(all_chunks)}")
     return all_chunks
 
 def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
     """Ingest chunks with embeddings to Qdrant with improved error handling"""
     if not chunks:
-        print("No chunks to ingest")
+        logger.info("No chunks to ingest")
         return
 
-    print(f"Generating embeddings for {len(chunks)} chunks...")
+    logger.info(f"Generating embeddings for {len(chunks)} chunks...")
 
     # Extract texts for embedding generation
     texts = [chunk["text"] for chunk in chunks]
@@ -414,10 +455,10 @@ def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
     embeddings = generate_embeddings(texts)
 
     if len(embeddings) != len(chunks):
-        print(f"Error: Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})")
+        logger.error(f"Mismatch between chunks ({len(chunks)}) and embeddings ({len(embeddings)})")
         return
 
-    print("Creating Qdrant points...")
+    logger.info("Creating Qdrant points...")
 
     # Get the next available ID in Qdrant
     try:
@@ -452,29 +493,29 @@ def ingest_to_qdrant(chunks: List[Dict], collection_name: str) -> None:
     # Upload to Qdrant in batches with error handling
     successful_batches = 0
     failed_batches = 0
-    
+
     for i in range(0, len(points), BATCH_SIZE):
         batch = points[i:i + BATCH_SIZE]
         batch_num = i // BATCH_SIZE + 1
         total_batches = (len(points) - 1) // BATCH_SIZE + 1
-        
+
         try:
             qdrant_client.upsert(
                 collection_name=collection_name,
                 points=batch
             )
             successful_batches += 1
-            print(f"✅ Uploaded batch {batch_num}/{total_batches} ({len(batch)} points)")
+            logger.info(f"Uploaded batch {batch_num}/{total_batches} ({len(batch)} points)")
         except Exception as e:
             failed_batches += 1
-            print(f"❌ Error uploading batch {batch_num}/{total_batches}: {e}")
+            logger.error(f"Error uploading batch {batch_num}/{total_batches}: {e}")
             # Continue with next batch instead of failing completely
-    
-    print(f"\n📊 Ingestion Summary:")
-    print(f"Total batches: {successful_batches + failed_batches}")
-    print(f"Successful batches: {successful_batches}")
-    print(f"Failed batches: {failed_batches}")
-    print(f"Estimated successful points: {successful_batches * BATCH_SIZE}")
+
+    logger.info("Ingestion Summary:")
+    logger.info(f"Total batches: {successful_batches + failed_batches}")
+    logger.info(f"Successful batches: {successful_batches}")
+    logger.info(f"Failed batches: {failed_batches}")
+    logger.info(f"Estimated successful points: {successful_batches * BATCH_SIZE}")
 
 def main() -> None:
     """Main ingestion pipeline with hybrid timestamp + weekly full reindex"""
@@ -490,13 +531,13 @@ def main() -> None:
 
     current_time = datetime.now(timezone.utc)
 
-    print("🚀 Starting MongoDB to Qdrant ingestion pipeline...")
+    logger.info("Starting MongoDB to Qdrant ingestion pipeline...")
     if args.source_url:
-        print(f"🌐 Source URL filter: {args.source_url}")
-    print(f"🗂️ MongoDB collection: {args.collection}")
-    print(f"🗃️ Qdrant collection: {args.qdrant_collection}")
-    print(f"♾️ Recreate collection: {args.recreate}")
-    print("=" * 50)
+        logger.info(f"Source URL filter: {args.source_url}")
+    logger.info(f"MongoDB collection: {args.collection}")
+    logger.info(f"Qdrant collection: {args.qdrant_collection}")
+    logger.info(f"Recreate collection: {args.recreate}")
+    logger.info("=" * 50)
     
     # Get MongoDB connection with specified collection
     mongo_client, db, collection = get_mongodb_collection(
@@ -506,7 +547,7 @@ def main() -> None:
     
     # Step 1: Create Qdrant collection
     if not create_qdrant_collection(collection_name=args.qdrant_collection, recreate=args.recreate):
-        print("Failed to create Qdrant collection. Exiting.")
+        logger.error("Failed to create Qdrant collection. Exiting.")
         close_mongodb_client(mongo_client)
         return
 
@@ -516,23 +557,23 @@ def main() -> None:
     # Determine which mode to use
     if args.force_full_reindex:
         use_full_reindex = True
-        print("🔧 Forced full reindex mode (--force-full-reindex)")
+        logger.info("Forced full reindex mode (--force-full-reindex)")
     elif args.force_incremental:
         use_full_reindex = False
-        print("🔧 Forced incremental mode (--force-incremental)")
+        logger.info("Forced incremental mode (--force-incremental)")
     elif args.recreate:
         use_full_reindex = False
-        print("🔧 Using incremental mode (collection was recreated)")
+        logger.info("Using incremental mode (collection was recreated)")
     else:
         use_full_reindex = should_do_full_reindex()
         if use_full_reindex:
             last_full = read_timestamp(LAST_FULL_REINDEX_FILE)
             days_since = (current_time - last_full).days
-            print(f"📅 Automatic mode selection: Full reindex (last full reindex was {days_since} days ago)")
+            logger.info(f"Automatic mode selection: Full reindex (last full reindex was {days_since} days ago)")
         else:
             last_ingestion = read_timestamp(LAST_INGESTION_FILE)
             hours_since = (current_time - last_ingestion).total_seconds() / 3600
-            print(f"📅 Automatic mode selection: Incremental update (last run was {hours_since:.1f} hours ago)")
+            logger.info(f"Automatic mode selection: Incremental update (last run was {hours_since:.1f} hours ago)")
 
     # Process documents based on mode
     if use_full_reindex:
@@ -552,8 +593,8 @@ def main() -> None:
     processing_time = time.time() - start_time
 
     if not chunks:
-        print("✅ No new chunks to process.")
-        print(f"⏱️ Check completed in {processing_time:.2f} seconds")
+        logger.info("No new chunks to process.")
+        logger.info(f"Check completed in {processing_time:.2f} seconds")
 
         # Update timestamps even if no chunks
         write_timestamp(LAST_INGESTION_FILE, current_time)
@@ -563,29 +604,29 @@ def main() -> None:
         close_mongodb_client(mongo_client)
         return
 
-    print(f"⏱️ Document processing completed in {processing_time:.2f} seconds")
+    logger.info(f"Document processing completed in {processing_time:.2f} seconds")
 
     # Step 3: Ingest to Qdrant
-    print(f"🚀 Starting vector ingestion for {len(chunks)} chunks...")
+    logger.info(f"Starting vector ingestion for {len(chunks)} chunks...")
     start_time = time.time()
     ingest_to_qdrant(chunks, args.qdrant_collection)
     ingestion_time = time.time() - start_time
-    print(f"⏱️ Vector ingestion completed in {ingestion_time:.2f} seconds")
+    logger.info(f"Vector ingestion completed in {ingestion_time:.2f} seconds")
 
     # Step 4: Update timestamps
     write_timestamp(LAST_INGESTION_FILE, current_time)
     if use_full_reindex:
         write_timestamp(LAST_FULL_REINDEX_FILE, current_time)
-        print(f"📝 Updated last_full_reindex timestamp")
-    print(f"📝 Updated last_ingestion timestamp")
+        logger.info("Updated last_full_reindex timestamp")
+    logger.info("Updated last_ingestion timestamp")
 
     # Step 5: Verify ingestion
     info = qdrant_client.get_collection(args.qdrant_collection)
-    print(f"\n✅ Ingestion complete!")
-    print(f"Collection: {args.qdrant_collection}")
-    print(f"Total points: {info.points_count}")
-    print(f"Vector size: {info.config.params.vectors.size}")
-    print(f"Total processing time: {(processing_time + ingestion_time):.2f} seconds")
+    logger.info("Ingestion complete!")
+    logger.info(f"Collection: {args.qdrant_collection}")
+    logger.info(f"Total points: {info.points_count}")
+    logger.info(f"Vector size: {info.config.params.vectors.size}")
+    logger.info(f"Total processing time: {(processing_time + ingestion_time):.2f} seconds")
 
     # Close connections
     close_mongodb_client(mongo_client)
