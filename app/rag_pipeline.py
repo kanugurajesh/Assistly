@@ -1,5 +1,7 @@
 import os
 import json
+import logging
+from logging.handlers import RotatingFileHandler
 from typing import List, Dict, Any, Optional
 from dotenv import load_dotenv
 from qdrant_client import QdrantClient
@@ -7,6 +9,18 @@ from fastembed import TextEmbedding
 from openai import OpenAI
 
 from memory_manager import get_memory_manager
+from validators import validate_query, validate_ticket, sanitize_text
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        RotatingFileHandler('rag_pipeline.log', maxBytes=10*1024*1024, backupCount=5),
+        logging.StreamHandler()
+    ]
+)
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -57,13 +71,31 @@ CLASSIFICATION_TEMPERATURE = 0.1  # Lower temperature for more consistent classi
 ENABLE_QUERY_ENHANCEMENT = False  # Temporarily disabled - query enhancement using GPT-4o
 
 class AtlanRAG:
-    def __init__(self) -> None:
+    def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Initialize RAG pipeline with optional settings.
+
+        Args:
+            settings: Optional settings dict. If None, uses global constants.
+        """
         self.openai_client = openai_client
         self.embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
 
+        # Use provided settings or fall back to globals
+        self.settings = settings or {
+            'top_k': TOP_K,
+            'score_threshold': SCORE_THRESHOLD,
+            'max_tokens': MAX_TOKENS,
+            'temperature': TEMPERATURE,
+            'classification_temperature': CLASSIFICATION_TEMPERATURE,
+            'llm_model': LLM_MODEL,
+            'enable_query_enhancement': ENABLE_QUERY_ENHANCEMENT,
+            'collection_name': COLLECTION_NAME
+        }
+
     def enhance_query(self, query: str) -> str:
         """Enhance user query using GPT-4o for better search results"""
-        if not ENABLE_QUERY_ENHANCEMENT:
+        if not self.settings.get('enable_query_enhancement', False):
             return query
 
         enhancement_prompt = f"""You are an expert at enhancing search queries for technical documentation. Your task is to expand and improve the user's query to find more relevant information in Atlan's documentation.
@@ -80,7 +112,7 @@ Return only the enhanced query, no explanation:"""
 
         try:
             response = self.openai_client.chat.completions.create(
-                model=LLM_MODEL,
+                model=self.settings.get('llm_model', LLM_MODEL),
                 messages=[
                     {"role": "system", "content": "You are a technical documentation search query enhancer. Return only the enhanced query."},
                     {"role": "user", "content": enhancement_prompt}
@@ -89,10 +121,10 @@ Return only the enhanced query, no explanation:"""
                 temperature=0.1
             )
             enhanced = response.choices[0].message.content.strip()
-            print(f"Query enhanced: '{query}' → '{enhanced}'")
+            logger.info(f"Query enhanced: '{query}' → '{enhanced}'")
             return enhanced
         except Exception as e:
-            print(f"Query enhancement failed: {e}, using original query")
+            logger.warning(f"Query enhancement failed: {e}, using original query")
             return query
 
 
@@ -105,21 +137,24 @@ Return only the enhanced query, no explanation:"""
                 return embeddings[0].tolist() if hasattr(embeddings[0], 'tolist') else list(embeddings[0])
             return []
         except (RuntimeError, ValueError, TypeError) as e:
-            print(f"Error generating query embedding: {e}")
+            logger.error(f"Error generating query embedding: {e}")
             return []
         except Exception as e:
-            print(f"Unexpected error generating query embedding: {e}")
+            logger.error(f"Unexpected error generating query embedding: {e}")
             return []
     
-    def search_documents(self, query: str, top_k: int = TOP_K) -> List[Dict]:
+    def search_documents(self, query: str, top_k: Optional[int] = None) -> List[Dict]:
         """Search for relevant documents using vector search"""
+        if top_k is None:
+            top_k = self.settings.get('top_k', TOP_K)
+
         # Step 1: Enhance the query (optional)
         enhanced_query = self.enhance_query(query)
 
         # Step 2: Vector search
         return self._vector_search(enhanced_query, top_k)
 
-    def _vector_search(self, query: str, top_k: int = TOP_K) -> List[Dict]:
+    def _vector_search(self, query: str, top_k: int) -> List[Dict]:
         """Perform vector search in Qdrant"""
         query_embedding = self.generate_query_embedding(query)
 
@@ -128,11 +163,11 @@ Return only the enhanced query, no explanation:"""
 
         try:
             search_results = qdrant_client.search(
-                collection_name=COLLECTION_NAME,
+                collection_name=self.settings.get('collection_name', COLLECTION_NAME),
                 query_vector=query_embedding,
                 limit=top_k,
                 with_payload=True,
-                score_threshold=SCORE_THRESHOLD
+                score_threshold=self.settings.get('score_threshold', SCORE_THRESHOLD)
             )
 
             results = []
@@ -149,13 +184,13 @@ Return only the enhanced query, no explanation:"""
             return results
 
         except (ConnectionError, TimeoutError) as e:
-            print(f"Connection error in vector search: {e}")
+            logger.error(f"Connection error in vector search: {e}")
             return []
         except (ValueError, KeyError) as e:
-            print(f"Data error in vector search: {e}")
+            logger.error(f"Data error in vector search: {e}")
             return []
         except Exception as e:
-            print(f"Unexpected error in vector search: {e}")
+            logger.error(f"Unexpected error in vector search: {e}")
             return []
     
     def extract_unique_sources(self, search_results: List[Dict]) -> List[str]:
@@ -206,58 +241,98 @@ Return only the enhanced query, no explanation:"""
 
         try:
             response = self.openai_client.chat.completions.create(
-                model=LLM_MODEL,
+                model=self.settings.get('llm_model', LLM_MODEL),
                 messages=[
                     {"role": "system", "content": "You are a helpful assistant that answers questions about Atlan based on the provided documentation context."},
                     {"role": "user", "content": prompt}
                 ],
-                max_tokens=MAX_TOKENS,
-                temperature=TEMPERATURE
+                max_tokens=self.settings.get('max_tokens', MAX_TOKENS),
+                temperature=self.settings.get('temperature', TEMPERATURE)
             )
             return response.choices[0].message.content
         except ConnectionError as e:
-            print(f"OpenAI API connection error: {e}")
+            logger.error(f"OpenAI API connection error: {e}")
             return "I'm having trouble connecting to the AI service. Please try again in a moment."
         except ValueError as e:
-            print(f"OpenAI API validation error: {e}")
+            logger.error(f"OpenAI API validation error: {e}")
             return "I encountered an issue with your request format. Please try rephrasing your question."
         except Exception as e:
-            print(f"Unexpected error generating response: {e}")
+            logger.error(f"Unexpected error generating response: {e}")
             return "I encountered an unexpected error while generating a response. Please try again."
     
     def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Main RAG pipeline function with conversation memory"""
+        # Validate and sanitize input
+        is_valid, error_msg = validate_query(query)
+        if not is_valid:
+            logger.warning(f"Invalid query rejected: {error_msg}")
+            return {
+                "answer": f"Invalid query: {error_msg}",
+                "sources": [],
+                "retrieved_chunks": 0,
+                "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
+                "search_results": [],
+                "error": error_msg
+            }
+
+        # Sanitize the query
+        sanitized_query = sanitize_text(query)
+
         # Search for relevant documents
-        search_results = self.search_documents(query)
+        search_results = self.search_documents(sanitized_query)
 
         # Extract unique sources
         sources = self.extract_unique_sources(search_results)
 
-        # Generate response with conversation context
-        answer = self.generate_rag_response(query, search_results, session_id)
+        # Generate response with conversation context (use sanitized query)
+        answer = self.generate_rag_response(sanitized_query, search_results, session_id)
 
         return {
             "answer": answer,
             "sources": sources,
             "retrieved_chunks": len(search_results),
-            "query_enhancement_enabled": ENABLE_QUERY_ENHANCEMENT,
+            "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
             "search_results": search_results  # For debugging
         }
 
 # Classification system
 class TicketClassifier:
-    def __init__(self) -> None:
+    def __init__(self, settings: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Initialize ticket classifier with optional settings.
+
+        Args:
+            settings: Optional settings dict. If None, uses global constants.
+        """
         self.openai_client = openai_client
+        self.settings = settings or {
+            'llm_model': LLM_MODEL,
+            'classification_temperature': CLASSIFICATION_TEMPERATURE
+        }
     
     def classify_ticket(self, ticket_subject: str, ticket_body: str) -> Dict[str, Any]:
         """Classify a support ticket"""
-        
+        # Validate and sanitize inputs
+        is_valid, error_msg = validate_ticket(ticket_subject, ticket_body)
+        if not is_valid:
+            logger.warning(f"Invalid ticket rejected: {error_msg}")
+            return {
+                "topic_tags": ["Invalid Input"],
+                "sentiment": "Neutral",
+                "priority": "P2 (Low)",
+                "error": error_msg
+            }
+
+        # Sanitize inputs
+        sanitized_subject = sanitize_text(ticket_subject)
+        sanitized_body = sanitize_text(ticket_body)
+
         classification_prompt = f"""You are an AI assistant that classifies customer support tickets for Atlan, a data catalog platform.
 
         Analyze the following ticket and provide a classification:
 
-        Subject: {ticket_subject}
-        Body: {ticket_body}
+        Subject: {sanitized_subject}
+        Body: {sanitized_body}
 
         Provide your analysis in the following JSON format:
         {{
@@ -292,13 +367,13 @@ class TicketClassifier:
 
         try:
             response = self.openai_client.chat.completions.create(
-                model=LLM_MODEL,
+                model=self.settings.get('llm_model', LLM_MODEL),
                 messages=[
                     {"role": "system", "content": "You are an AI assistant that classifies customer support tickets for Atlan, a data catalog platform. Always respond with only valid JSON."},
                     {"role": "user", "content": classification_prompt}
                 ],
                 max_tokens=500,
-                temperature=CLASSIFICATION_TEMPERATURE
+                temperature=self.settings.get('classification_temperature', CLASSIFICATION_TEMPERATURE)
             )
             # Parse the JSON response
             classification_text = response.choices[0].message.content.strip()
@@ -313,21 +388,21 @@ class TicketClassifier:
             return classification
             
         except ConnectionError as e:
-            print(f"OpenAI API connection error during classification: {e}")
+            logger.error(f"OpenAI API connection error during classification: {e}")
             return {
                 "topic_tags": ["Connection Error"],
                 "sentiment": "Neutral",
                 "priority": "P1 (Medium)"
             }
         except (json.JSONDecodeError, ValueError) as e:
-            print(f"JSON parsing error during classification: {e}")
+            logger.error(f"JSON parsing error during classification: {e}")
             return {
                 "topic_tags": ["Parsing Error"],
                 "sentiment": "Neutral",
                 "priority": "P1 (Medium)"
             }
         except Exception as e:
-            print(f"Unexpected error classifying ticket: {e}")
+            logger.error(f"Unexpected error classifying ticket: {e}")
             return {
                 "topic_tags": ["Unknown"],
                 "sentiment": "Neutral",
@@ -368,10 +443,7 @@ class RAGPipeline:
     """Integrated pipeline combining classification and RAG functionality with conversation memory"""
 
     def __init__(self) -> None:
-        self.rag = AtlanRAG()
-        self.classifier = TicketClassifier()
-        self.memory_manager = get_memory_manager()
-        # Store current settings for dynamic updates
+        # Store current settings for dynamic updates (thread-safe instance-level)
         self.current_settings = {
             'top_k': TOP_K,
             'score_threshold': SCORE_THRESHOLD,
@@ -383,37 +455,30 @@ class RAGPipeline:
             'collection_name': COLLECTION_NAME
         }
 
+        # Initialize components with settings (thread-safe)
+        self.rag = AtlanRAG(settings=self.current_settings)
+        self.classifier = TicketClassifier(settings=self.current_settings)
+        self.memory_manager = get_memory_manager()
+
     def update_settings(self, new_settings: Dict[str, Any]) -> bool:
-        """Update pipeline settings dynamically"""
+        """
+        Update pipeline settings dynamically (thread-safe).
+
+        WARNING: This method only updates the instance settings, not global constants.
+        Each RAGPipeline instance maintains its own configuration.
+        """
         try:
-            # Update current settings
+            # Update current settings (thread-safe - instance-level only)
             self.current_settings.update(new_settings)
 
-            # Update global constants (for new instances)
-            global TOP_K, SCORE_THRESHOLD, MAX_TOKENS, TEMPERATURE, CLASSIFICATION_TEMPERATURE
-            global LLM_MODEL, ENABLE_QUERY_ENHANCEMENT, COLLECTION_NAME
-
-            if 'top_k' in new_settings:
-                TOP_K = new_settings['top_k']
-            if 'score_threshold' in new_settings:
-                SCORE_THRESHOLD = new_settings['score_threshold']
-            if 'max_tokens' in new_settings:
-                MAX_TOKENS = new_settings['max_tokens']
-            if 'temperature' in new_settings:
-                TEMPERATURE = new_settings['temperature']
-            if 'classification_temperature' in new_settings:
-                CLASSIFICATION_TEMPERATURE = new_settings['classification_temperature']
-            if 'llm_model' in new_settings:
-                LLM_MODEL = new_settings['llm_model']
-            if 'enable_query_enhancement' in new_settings:
-                ENABLE_QUERY_ENHANCEMENT = new_settings['enable_query_enhancement']
+            # Log collection change for visibility
             if 'collection_name' in new_settings:
-                COLLECTION_NAME = new_settings['collection_name']
-                print(f"Switched to collection: {COLLECTION_NAME}")
+                logger.info(f"Switched to collection: {new_settings['collection_name']}")
 
+            logger.info(f"Settings updated successfully: {list(new_settings.keys())}")
             return True
         except Exception as e:
-            print(f"Error updating settings: {e}")
+            logger.error(f"Error updating settings: {e}")
             return False
 
     def get_current_settings(self) -> Dict[str, Any]:

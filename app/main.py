@@ -370,10 +370,6 @@ def process_sample_question(sample_text):
                 if session_id:
                     st.session_state.rag_pipeline.add_conversation_turn(session_id, sample_text, response_content)
 
-                # Add conversation to memory
-                if session_id:
-                    st.session_state.rag_pipeline.add_conversation_turn(session_id, sample_text, response_content)
-
                 assistant_message = {
                     "role": "assistant",
                     "content": response_content,

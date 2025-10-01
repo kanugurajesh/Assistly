@@ -5,10 +5,26 @@ import argparse
 from datetime import datetime, timezone
 from urllib.parse import urlparse
 import json
+import logging
+import time
+from tqdm import tqdm
 from utils import get_mongodb_collection, close_mongodb_client
+
+# Configure logging
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+)
+logger = logging.getLogger(__name__)
 
 # Load environment variables from app/.env for deployment-ready structure
 load_dotenv(os.path.join(os.path.dirname(__file__), 'app', '.env'))
+
+# Configuration constants from environment
+MAX_RETRIES = int(os.getenv("MAX_RETRIES", "3"))
+BATCH_SIZE = int(os.getenv("BATCH_SIZE", "100"))
+CRAWL_TIMEOUT = int(os.getenv("CRAWL_TIMEOUT", "300"))
+RETRY_DELAY = int(os.getenv("RETRY_DELAY", "5"))
 
 # Initialize with your API key
 firecrawl = Firecrawl(api_key=os.getenv("FIRECRAWL_API_KEY"))
@@ -26,21 +42,41 @@ def main() -> None:
     parser.add_argument("url", help="URL to crawl")
     parser.add_argument("--limit", type=int, default=700, help="Maximum pages to crawl (default: 700)")
     parser.add_argument("--collection", default="atlan_developer_docs", help="MongoDB collection name (default: atlan_developer_docs)")
-    
+
     args = parser.parse_args()
-    
-    print(f"🚀 Starting crawl of {args.url}")
-    print(f"📊 Limit: {args.limit} pages")
-    print(f"🗂️ Collection: {args.collection}")
-    print("=" * 50)
+
+    # Validate URL format
+    if not args.url.startswith(('http://', 'https://')):
+        logger.error("Invalid URL format. URL must start with http:// or https://")
+        raise ValueError("URL must start with http:// or https://")
+
+    logger.info(f"🚀 Starting crawl of {args.url}")
+    logger.info(f"📊 Limit: {args.limit} pages")
+    logger.info(f"🗂️ Collection: {args.collection}")
+    logger.info("=" * 50)
     
     # Get MongoDB connection
     mongo_client, db, collection = get_mongodb_collection(
         collection_name=args.collection
     )
-    
-    # Crawl the URL
-    docs = firecrawl.crawl(url=args.url, limit=args.limit)
+
+    # Crawl the URL with retry logic
+    docs = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{MAX_RETRIES}: Crawling {args.url}")
+            docs = firecrawl.crawl(url=args.url, limit=args.limit)
+            logger.info("Crawl completed successfully")
+            break
+        except Exception as e:
+            logger.error(f"Crawl attempt {attempt + 1} failed: {e}")
+            if attempt < MAX_RETRIES - 1:
+                logger.info(f"Retrying in {RETRY_DELAY} seconds...")
+                time.sleep(RETRY_DELAY)
+            else:
+                logger.error("All retry attempts failed")
+                close_mongodb_client(mongo_client)
+                raise
 
     if docs and hasattr(docs, "data") and docs.data:
         # Get domain name for identification
@@ -53,15 +89,16 @@ def main() -> None:
             for doc in existing_docs:
                 if "metadata" in doc and "url" in doc["metadata"]:
                     existing_urls.add(doc["metadata"]["url"])
-            print(f"📋 Found {len(existing_urls)} existing documents from {args.url}")
+            logger.info(f"📋 Found {len(existing_urls)} existing documents from {args.url}")
         except Exception as e:
-            print(f"⚠️ Warning: Could not check existing documents: {e}")
+            logger.warning(f"Could not check existing documents: {e}")
         
         # Prepare documents for MongoDB insertion
         documents_to_insert = []
         skipped_count = 0
-        
-        for page in docs.data:
+
+        logger.info(f"Processing {len(docs.data)} pages...")
+        for page in tqdm(docs.data, desc="Processing pages", unit="page"):
             # Skip if already exists
             page_url = getattr(page.metadata, "url", "") if hasattr(page, "metadata") else ""
             if page_url in existing_urls:
@@ -121,21 +158,34 @@ def main() -> None:
             
             documents_to_insert.append(page_dict)
         
-        # Insert documents into MongoDB
+        # Insert documents into MongoDB in batches
         try:
             if documents_to_insert:
-                result = collection.insert_many(documents_to_insert)
-                print(f"✅ Successfully inserted {len(result.inserted_ids)} documents into MongoDB")
+                logger.info(f"Inserting {len(documents_to_insert)} documents in batches of {BATCH_SIZE}...")
+                inserted_count = 0
+
+                for i in range(0, len(documents_to_insert), BATCH_SIZE):
+                    batch = documents_to_insert[i:i+BATCH_SIZE]
+                    try:
+                        result = collection.insert_many(batch)
+                        inserted_count += len(result.inserted_ids)
+                        logger.info(f"Inserted batch: {inserted_count}/{len(documents_to_insert)} documents")
+                    except Exception as e:
+                        logger.error(f"Error inserting batch at index {i}: {e}")
+                        # Continue with next batch instead of failing completely
+                        continue
+
+                logger.info(f"✅ Successfully inserted {inserted_count} documents into MongoDB")
             else:
-                print("ℹ️ No new documents to insert")
-            
-            print(f"📄 New pages crawled: {len(documents_to_insert)}")
-            print(f"⏭️ Skipped existing pages: {skipped_count}")
-            print(f"📊 Total pages processed: {len(docs.data)}")
-            print(f"🔗 Source URL: {args.url}")
-            print(f"🌐 Domain: {domain_name}")
-            print(f"🗄️ Database: {db.name}")
-            print(f"📦 Collection: {collection.name}")
+                logger.info("ℹ️ No new documents to insert")
+
+            logger.info(f"📄 New pages crawled: {len(documents_to_insert)}")
+            logger.info(f"⏭️ Skipped existing pages: {skipped_count}")
+            logger.info(f"📊 Total pages processed: {len(docs.data)}")
+            logger.info(f"🔗 Source URL: {args.url}")
+            logger.info(f"🌐 Domain: {domain_name}")
+            logger.info(f"🗄️ Database: {db.name}")
+            logger.info(f"📦 Collection: {collection.name}")
             
             # Create backup filename based on domain
             filename = f"{domain_name.replace('.', '_')}_crawl_backup.json"
@@ -146,10 +196,10 @@ def main() -> None:
             }
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(crawl_data, f, indent=2, ensure_ascii=False, default=str)
-            print(f"💾 Backup saved to '{filename}'")
+            logger.info(f"💾 Backup saved to '{filename}'")
             
         except Exception as e:
-            print(f"❌ Error inserting into MongoDB: {e}")
+            logger.error(f"Error inserting into MongoDB: {e}")
             # Fallback to JSON file if MongoDB fails
             filename = f"{domain_name.replace('.', '_')}_crawl_backup.json"
             crawl_data = {
@@ -159,14 +209,14 @@ def main() -> None:
             }
             with open(filename, "w", encoding="utf-8") as f:
                 json.dump(crawl_data, f, indent=2, ensure_ascii=False, default=str)
-            print(f"💾 Backup saved to '{filename}'")
+            logger.info(f"💾 Backup saved to '{filename}'")
         finally:
             # Close MongoDB connection
             close_mongodb_client(mongo_client)
         
     else:
-        print("❌ No data found in crawl result")
-        print("Raw result:", docs)
+        logger.error("No data found in crawl result")
+        logger.debug(f"Raw result: {docs}")
 
 if __name__ == "__main__":
     main()
