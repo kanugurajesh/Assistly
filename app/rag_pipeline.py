@@ -10,6 +10,12 @@ from openai import OpenAI
 
 from memory_manager import get_memory_manager
 from validators import validate_query, validate_ticket, sanitize_text
+from rate_limiter import get_rate_limiter
+from retry_logic import retry_openai_call, retry_qdrant_call, retry_embedding_generation
+from cache_manager import get_cache
+from metrics import get_metrics_collector, PerformanceTimer
+from config_validation import validate_rag_settings, get_warnings_for_settings
+import uuid
 
 # Configure logging
 logging.basicConfig(
@@ -93,6 +99,11 @@ class AtlanRAG:
             'collection_name': COLLECTION_NAME
         }
 
+        # Initialize production-ready components
+        self.rate_limiter = get_rate_limiter()
+        self.cache = get_cache()
+        self.metrics = get_metrics_collector()
+
     def enhance_query(self, query: str) -> str:
         """Enhance user query using GPT-4o for better search results"""
         if not self.settings.get('enable_query_enhancement', False):
@@ -110,16 +121,27 @@ Enhance this query by:
 
 Return only the enhanced query, no explanation:"""
 
+        # Check rate limit
+        allowed, wait_time = self.rate_limiter.check_openai_limit()
+        if not allowed:
+            logger.warning(f"Rate limit exceeded for query enhancement. Wait {wait_time}s")
+            return query  # Fallback to original query
+
         try:
-            response = self.openai_client.chat.completions.create(
-                model=self.settings.get('llm_model', LLM_MODEL),
-                messages=[
-                    {"role": "system", "content": "You are a technical documentation search query enhancer. Return only the enhanced query."},
-                    {"role": "user", "content": enhancement_prompt}
-                ],
-                max_tokens=200,
-                temperature=0.1
-            )
+            # Call OpenAI with retry logic (decorator will handle retries)
+            @retry_openai_call
+            def _call_openai():
+                return self.openai_client.chat.completions.create(
+                    model=self.settings.get('llm_model', LLM_MODEL),
+                    messages=[
+                        {"role": "system", "content": "You are a technical documentation search query enhancer. Return only the enhanced query."},
+                        {"role": "user", "content": enhancement_prompt}
+                    ],
+                    max_tokens=200,
+                    temperature=0.1
+                )
+
+            response = _call_openai()
             enhanced = response.choices[0].message.content.strip()
             logger.info(f"Query enhanced: '{query}' → '{enhanced}'")
             return enhanced
@@ -129,13 +151,27 @@ Return only the enhanced query, no explanation:"""
 
 
     def generate_query_embedding(self, query: str) -> List[float]:
-        """Generate embedding for user query using FastEmbed"""
-        try:
-            # Generate embedding using FastEmbed
+        """Generate embedding for user query using FastEmbed with caching"""
+        # Check cache first
+        cached_embedding = self.cache.get_cached_embedding(query)
+        if cached_embedding is not None:
+            logger.debug(f"Using cached embedding for query: {query[:50]}...")
+            return cached_embedding
+
+        # Generate embedding with retry logic
+        @retry_embedding_generation
+        def _generate_embedding():
             embeddings = list(self.embedding_model.embed([query]))
             if embeddings:
                 return embeddings[0].tolist() if hasattr(embeddings[0], 'tolist') else list(embeddings[0])
             return []
+
+        try:
+            embedding = _generate_embedding()
+            if embedding:
+                # Cache the result
+                self.cache.set_cached_embedding(query, embedding)
+            return embedding
         except (RuntimeError, ValueError, TypeError) as e:
             logger.error(f"Error generating query embedding: {e}")
             return []
@@ -155,20 +191,40 @@ Return only the enhanced query, no explanation:"""
         return self._vector_search(enhanced_query, top_k)
 
     def _vector_search(self, query: str, top_k: int) -> List[Dict]:
-        """Perform vector search in Qdrant"""
+        """Perform vector search in Qdrant with caching and rate limiting"""
+        # Check search cache first
+        collection = self.settings.get('collection_name', COLLECTION_NAME)
+        score_threshold = self.settings.get('score_threshold', SCORE_THRESHOLD)
+
+        cached_results = self.cache.get_cached_search(query, top_k, score_threshold, collection)
+        if cached_results is not None:
+            logger.debug(f"Using cached search results for query: {query[:50]}...")
+            return cached_results
+
+        # Check rate limit
+        allowed, wait_time = self.rate_limiter.check_qdrant_limit()
+        if not allowed:
+            logger.warning(f"Rate limit exceeded for Qdrant search. Wait {wait_time}s")
+            return []  # Return empty results
+
         query_embedding = self.generate_query_embedding(query)
 
         if not query_embedding:
             return []
 
-        try:
-            search_results = qdrant_client.search(
-                collection_name=self.settings.get('collection_name', COLLECTION_NAME),
+        # Perform search with retry logic
+        @retry_qdrant_call
+        def _search():
+            return qdrant_client.search(
+                collection_name=collection,
                 query_vector=query_embedding,
                 limit=top_k,
                 with_payload=True,
-                score_threshold=self.settings.get('score_threshold', SCORE_THRESHOLD)
+                score_threshold=score_threshold
             )
+
+        try:
+            search_results = _search()
 
             results = []
             for result in search_results:
@@ -180,6 +236,10 @@ Return only the enhanced query, no explanation:"""
                     "score": result.score,
                     "search_type": "vector"
                 })
+
+            # Cache the results
+            if results:
+                self.cache.set_cached_search(query, top_k, score_threshold, collection, results)
 
             return results
 
@@ -261,39 +321,95 @@ Return only the enhanced query, no explanation:"""
             return "I encountered an unexpected error while generating a response. Please try again."
     
     def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
-        """Main RAG pipeline function with conversation memory"""
-        # Validate and sanitize input
-        is_valid, error_msg = validate_query(query)
-        if not is_valid:
-            logger.warning(f"Invalid query rejected: {error_msg}")
+        """Main RAG pipeline function with conversation memory, metrics, and rate limiting"""
+        # Generate query ID for tracking
+        query_id = str(uuid.uuid4())[:8]
+
+        # Start performance timer
+        with PerformanceTimer(f"query_{query_id}") as timer:
+            # Check overall query rate limit
+            allowed, wait_time = self.rate_limiter.check_query_limit()
+            if not allowed:
+                error_msg = f"Too many requests. Please wait {wait_time} seconds."
+                logger.warning(f"Query rate limit exceeded: {error_msg}")
+                self.metrics.record_query(
+                    query_id=query_id,
+                    response_time=0.0,
+                    tokens_used=0,
+                    search_method="none",
+                    num_results=0,
+                    error=True,
+                    error_type="rate_limit"
+                )
+                return {
+                    "answer": error_msg,
+                    "sources": [],
+                    "retrieved_chunks": 0,
+                    "query_enhancement_enabled": False,
+                    "search_results": [],
+                    "error": error_msg
+                }
+
+            # Validate and sanitize input
+            is_valid, error_msg = validate_query(query)
+            if not is_valid:
+                logger.warning(f"Invalid query rejected: {error_msg}")
+                self.metrics.record_query(
+                    query_id=query_id,
+                    response_time=timer.get_elapsed(),
+                    tokens_used=0,
+                    search_method="none",
+                    num_results=0,
+                    error=True,
+                    error_type="validation_error"
+                )
+                return {
+                    "answer": f"Invalid query: {error_msg}",
+                    "sources": [],
+                    "retrieved_chunks": 0,
+                    "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
+                    "search_results": [],
+                    "error": error_msg
+                }
+
+            # Sanitize the query
+            sanitized_query = sanitize_text(query)
+
+            # Search for relevant documents
+            search_results = self.search_documents(sanitized_query)
+
+            # Extract unique sources
+            sources = self.extract_unique_sources(search_results)
+
+            # Generate response with conversation context (use sanitized query)
+            answer = self.generate_rag_response(sanitized_query, search_results, session_id)
+
+            # Estimate tokens used (rough estimate)
+            estimated_tokens = len(sanitized_query.split()) * 1.3 + len(answer.split()) * 1.3 + 500
+
+            # Record successful metrics
+            self.metrics.record_query(
+                query_id=query_id,
+                response_time=timer.get_elapsed(),
+                tokens_used=int(estimated_tokens),
+                search_method="vector",  # Could be dynamic based on actual search method
+                num_results=len(search_results),
+                error=False,
+                cached=False,  # Could check if results were cached
+                model=self.settings.get('llm_model', LLM_MODEL)
+            )
+
+            logger.info(f"Query {query_id} completed in {timer.get_elapsed():.2f}s with {len(search_results)} results")
+
             return {
-                "answer": f"Invalid query: {error_msg}",
-                "sources": [],
-                "retrieved_chunks": 0,
+                "answer": answer,
+                "sources": sources,
+                "retrieved_chunks": len(search_results),
                 "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
-                "search_results": [],
-                "error": error_msg
+                "search_results": search_results,  # For debugging
+                "query_id": query_id,
+                "response_time": timer.get_elapsed()
             }
-
-        # Sanitize the query
-        sanitized_query = sanitize_text(query)
-
-        # Search for relevant documents
-        search_results = self.search_documents(sanitized_query)
-
-        # Extract unique sources
-        sources = self.extract_unique_sources(search_results)
-
-        # Generate response with conversation context (use sanitized query)
-        answer = self.generate_rag_response(sanitized_query, search_results, session_id)
-
-        return {
-            "answer": answer,
-            "sources": sources,
-            "retrieved_chunks": len(search_results),
-            "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
-            "search_results": search_results  # For debugging
-        }
 
 # Classification system
 class TicketClassifier:
@@ -309,6 +425,10 @@ class TicketClassifier:
             'llm_model': LLM_MODEL,
             'classification_temperature': CLASSIFICATION_TEMPERATURE
         }
+
+        # Initialize production components
+        self.rate_limiter = get_rate_limiter()
+        self.cache = get_cache()
     
     def classify_ticket(self, ticket_subject: str, ticket_body: str) -> Dict[str, Any]:
         """Classify a support ticket"""
@@ -326,6 +446,24 @@ class TicketClassifier:
         # Sanitize inputs
         sanitized_subject = sanitize_text(ticket_subject)
         sanitized_body = sanitize_text(ticket_body)
+
+        # Check cache first (combine subject + body for cache key)
+        cache_key = f"{sanitized_subject}|{sanitized_body}"
+        cached_classification = self.cache.get_cached_classification(cache_key)
+        if cached_classification is not None:
+            logger.debug(f"Using cached classification for ticket: {sanitized_subject[:50]}...")
+            return cached_classification
+
+        # Check rate limit
+        allowed, wait_time = self.rate_limiter.check_classification_limit()
+        if not allowed:
+            logger.warning(f"Classification rate limit exceeded. Wait {wait_time}s")
+            return {
+                "topic_tags": ["Rate Limit Exceeded"],
+                "sentiment": "Neutral",
+                "priority": "P1 (Medium)",
+                "error": f"Too many requests. Please wait {wait_time} seconds."
+            }
 
         classification_prompt = f"""You are an AI assistant that classifies customer support tickets for Atlan, a data catalog platform.
 
@@ -365,8 +503,10 @@ class TicketClassifier:
 
         Respond with only the JSON object, no additional text."""
 
-        try:
-            response = self.openai_client.chat.completions.create(
+        # Call OpenAI with retry logic
+        @retry_openai_call
+        def _classify():
+            return self.openai_client.chat.completions.create(
                 model=self.settings.get('llm_model', LLM_MODEL),
                 messages=[
                     {"role": "system", "content": "You are an AI assistant that classifies customer support tickets for Atlan, a data catalog platform. Always respond with only valid JSON."},
@@ -375,6 +515,9 @@ class TicketClassifier:
                 max_tokens=500,
                 temperature=self.settings.get('classification_temperature', CLASSIFICATION_TEMPERATURE)
             )
+
+        try:
+            response = _classify()
             # Parse the JSON response
             classification_text = response.choices[0].message.content.strip()
             
@@ -385,8 +528,12 @@ class TicketClassifier:
                     classification_text = classification_text[4:]
             
             classification = json.loads(classification_text)
+
+            # Cache the successful classification
+            self.cache.set_cached_classification(cache_key, classification)
+
             return classification
-            
+
         except ConnectionError as e:
             logger.error(f"OpenAI API connection error during classification: {e}")
             return {
