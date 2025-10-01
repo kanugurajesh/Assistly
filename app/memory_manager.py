@@ -136,9 +136,11 @@ class ConversationMemoryManager:
         if len(session_id) > 255:
             raise InvalidSessionError("Session ID exceeds maximum length of 255 characters")
 
-        # Check for valid characters (alphanumeric, hyphens, underscores)
-        if not all(c.isalnum() or c in '-_' for c in session_id):
-            raise InvalidSessionError("Session ID contains invalid characters. Only alphanumeric, hyphens, and underscores are allowed")
+        # Check for valid characters (alphanumeric, hyphens only for UUID format)
+        # This matches the validator pattern: hex characters and hyphens
+        import re
+        if not re.match(r'^[a-f0-9\-]+$', session_id, re.IGNORECASE):
+            raise InvalidSessionError("Session ID contains invalid characters. Only alphanumeric and hyphens are allowed")
 
     def _validate_message(self, message: Union[str, None]) -> None:
         """

@@ -171,18 +171,26 @@ class MultiTierRateLimiter:
 
 # Global instance (singleton pattern)
 _global_rate_limiter = None
+_global_rate_limiter_lock = Lock()
 
 
 def get_rate_limiter() -> MultiTierRateLimiter:
     """
     Get the global rate limiter instance (singleton).
+    Thread-safe implementation using double-checked locking.
 
     Returns:
         MultiTierRateLimiter instance
     """
     global _global_rate_limiter
+
+    # Double-checked locking pattern for thread-safe singleton
     if _global_rate_limiter is None:
-        _global_rate_limiter = MultiTierRateLimiter()
+        with _global_rate_limiter_lock:
+            if _global_rate_limiter is None:
+                _global_rate_limiter = MultiTierRateLimiter()
+                logger.info("Global rate limiter instance created")
+
     return _global_rate_limiter
 
 

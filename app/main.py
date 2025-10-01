@@ -396,6 +396,10 @@ def process_sample_question(sample_text):
                 if sources:
                     assistant_message["sources"] = sources
 
+                # Add query_id if available (for RAG responses)
+                if response_type == 'rag' and isinstance(response_data, dict):
+                    assistant_message["query_id"] = response_data.get("query_id")
+
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
                 logger.error(f"Error processing sample question: {str(e)}", exc_info=True)
@@ -409,11 +413,22 @@ def process_sample_question(sample_text):
                 else:
                     error_msg = "I apologize, but I encountered an unexpected error while processing your request. Please try again or contact support if the issue persists."
 
+                # Sanitize error details - only show for debug mode
+                error_details = None
+                if st.session_state.get('rag_settings', {}).get('show_analysis', True):
+                    # Filter sensitive information from error messages
+                    error_str = str(e)
+                    # Remove any API keys or tokens that might be in error messages
+                    import re
+                    error_str = re.sub(r'(api[_-]?key|token|secret)["\s:=]+[\w\-]+', '[REDACTED]', error_str, flags=re.IGNORECASE)
+                    # Limit error message length
+                    error_details = error_str[:500] if len(error_str) > 500 else error_str
+
                 st.session_state.messages.append({
                     "role": "assistant",
                     "content": error_msg,
                     "error": True,
-                    "error_details": str(e) if st.session_state.get('rag_settings', {}).get('show_analysis', True) else None
+                    "error_details": error_details
                 })
     st.rerun()
 
@@ -736,6 +751,12 @@ elif page == "💬 Chat Agent":
                             current_rag_topics = st.session_state.get('rag_settings', {}).get('rag_topics', ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO'])
                             st.markdown(f"**⚙️ Current RAG Topics:** {', '.join(current_rag_topics)}")
 
+                    # Show query ID if available
+                    if message.get("query_id"):
+                        st.markdown("---")
+                        st.markdown(f"**🆔 Query ID:** `{message['query_id']}`")
+                        st.caption("Use this ID when contacting support")
+
                     # Show error details if available
                     if message.get("error") and message.get("error_details"):
                         st.markdown("---")
@@ -854,6 +875,10 @@ elif page == "💬 Chat Agent":
                         if sources:
                             assistant_message["sources"] = sources
 
+                        # Add query_id if available (for RAG responses)
+                        if response_type == 'rag' and isinstance(response_data, dict):
+                            assistant_message["query_id"] = response_data.get("query_id")
+
                         st.session_state.messages.append(assistant_message)
 
                     except Exception as e:
@@ -869,11 +894,22 @@ elif page == "💬 Chat Agent":
                         else:
                             error_msg = "I apologize, but I encountered an unexpected error while processing your request. Please try again or contact support if the issue persists."
 
+                        # Sanitize error details - only show for debug mode
+                        error_details = None
+                        if st.session_state.get('rag_settings', {}).get('show_analysis', True):
+                            # Filter sensitive information from error messages
+                            error_str = str(e)
+                            # Remove any API keys or tokens that might be in error messages
+                            import re
+                            error_str = re.sub(r'(api[_-]?key|token|secret)["\s:=]+[\w\-]+', '[REDACTED]', error_str, flags=re.IGNORECASE)
+                            # Limit error message length
+                            error_details = error_str[:500] if len(error_str) > 500 else error_str
+
                         st.session_state.messages.append({
                             "role": "assistant",
                             "content": error_msg,
                             "error": True,
-                            "error_details": str(e) if st.session_state.get('rag_settings', {}).get('show_analysis', True) else None
+                            "error_details": error_details
                         })
 
                 # Rerun to update the chat display

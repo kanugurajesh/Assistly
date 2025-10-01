@@ -2,8 +2,8 @@
 Configuration validation using Pydantic for type safety and validation.
 """
 import logging
-from typing import Optional, List
-from pydantic import BaseModel, Field, validator, ValidationError
+from typing import Optional, List, Tuple
+from pydantic import BaseModel, Field, field_validator, ValidationError, ConfigDict
 
 logger = logging.getLogger(__name__)
 
@@ -71,7 +71,8 @@ class RAGSettings(BaseModel):
         description="Qdrant collection name"
     )
 
-    @validator('llm_model')
+    @field_validator('llm_model')
+    @classmethod
     def validate_model(cls, v):
         """Validate that the model is supported."""
         allowed_models = [
@@ -87,17 +88,19 @@ class RAGSettings(BaseModel):
             )
         return v
 
-    @validator('temperature', 'classification_temperature')
-    def validate_temperature(cls, v, field):
+    @field_validator('temperature', 'classification_temperature')
+    @classmethod
+    def validate_temperature(cls, v, info):
         """Validate temperature is reasonable."""
         if v > 1.5:
             logger.warning(
-                f"{field.name}={v} is very high. "
+                f"{info.field_name}={v} is very high. "
                 "Responses may be inconsistent."
             )
         return v
 
-    @validator('top_k')
+    @field_validator('top_k')
+    @classmethod
     def validate_top_k(cls, v):
         """Validate top_k is reasonable."""
         if v > 10:
@@ -107,11 +110,11 @@ class RAGSettings(BaseModel):
             )
         return v
 
-    class Config:
-        """Pydantic configuration."""
-        validate_assignment = True  # Validate on attribute assignment
-        extra = 'forbid'  # Don't allow extra fields
-        use_enum_values = True
+    model_config = ConfigDict(
+        validate_assignment=True,  # Validate on attribute assignment
+        extra='forbid',  # Don't allow extra fields
+        use_enum_values=True
+    )
 
 
 class CacheSettings(BaseModel):
@@ -159,9 +162,10 @@ class CacheSettings(BaseModel):
         description="Classification cache TTL in seconds (1 min - 24 hours)"
     )
 
-    class Config:
-        validate_assignment = True
-        extra = 'forbid'
+    model_config = ConfigDict(
+        validate_assignment=True,
+        extra='forbid'
+    )
 
 
 class RateLimitSettings(BaseModel):
@@ -195,9 +199,10 @@ class RateLimitSettings(BaseModel):
         description="Maximum classifications per minute"
     )
 
-    class Config:
-        validate_assignment = True
-        extra = 'forbid'
+    model_config = ConfigDict(
+        validate_assignment=True,
+        extra='forbid'
+    )
 
 
 class ApplicationConfig(BaseModel):
@@ -207,11 +212,12 @@ class ApplicationConfig(BaseModel):
     cache: CacheSettings = Field(default_factory=CacheSettings)
     rate_limits: RateLimitSettings = Field(default_factory=RateLimitSettings)
 
-    class Config:
-        validate_assignment = True
+    model_config = ConfigDict(
+        validate_assignment=True
+    )
 
 
-def validate_rag_settings(settings: dict) -> tuple[bool, Optional[str], Optional[RAGSettings]]:
+def validate_rag_settings(settings: dict) -> Tuple[bool, Optional[str], Optional[RAGSettings]]:
     """
     Validate RAG settings dictionary.
 
@@ -291,7 +297,7 @@ if __name__ == "__main__":
             llm_model="gpt-4o"
         )
         print("✅ Settings validated successfully")
-        print(f"Settings: {settings.dict()}")
+        print(f"Settings: {settings.model_dump()}")
 
         warnings = get_warnings_for_settings(settings)
         if warnings:

@@ -54,11 +54,16 @@ def validate_environment_variables() -> None:
 # Validate environment on import
 validate_environment_variables()
 
-# Initialize clients
-openai_client = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+# Initialize clients with timeouts
+openai_client = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY"),
+    timeout=30.0,  # 30 second timeout for API calls
+    max_retries=2   # Retry failed requests up to 2 times
+)
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),
     api_key=os.getenv("QDRANT_API_KEY"),
+    timeout=10.0,  # 10 second timeout for Qdrant operations
 )
 
 # Configuration
@@ -617,6 +622,10 @@ class RAGPipeline:
         try:
             # Update current settings (thread-safe - instance-level only)
             self.current_settings.update(new_settings)
+
+            # Apply settings to RAG and Classifier components
+            self.rag.settings.update(new_settings)
+            self.classifier.settings.update(new_settings)
 
             # Log collection change for visibility
             if 'collection_name' in new_settings:

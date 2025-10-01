@@ -295,18 +295,26 @@ class PerformanceTimer:
 
 # Global metrics collector instance (singleton pattern)
 _global_metrics = None
+_global_metrics_lock = Lock()
 
 
 def get_metrics_collector() -> MetricsCollector:
     """
     Get the global metrics collector instance (singleton).
+    Thread-safe implementation using double-checked locking.
 
     Returns:
         MetricsCollector instance
     """
     global _global_metrics
+
+    # Double-checked locking pattern for thread-safe singleton
     if _global_metrics is None:
-        _global_metrics = MetricsCollector()
+        with _global_metrics_lock:
+            if _global_metrics is None:
+                _global_metrics = MetricsCollector()
+                logger.info("Global metrics collector instance created")
+
     return _global_metrics
 
 

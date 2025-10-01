@@ -17,6 +17,9 @@ class InputValidator:
     MAX_TICKET_SUBJECT_LENGTH = 500
     MAX_TICKET_BODY_LENGTH = 5000
 
+    # Security configuration
+    BLOCK_PROMPT_INJECTION = True  # Set to False for lenient mode
+
     # Patterns to detect potential prompt injection
     PROMPT_INJECTION_PATTERNS = [
         r'ignore\s+(previous|all\s+)?instructions?',
@@ -60,8 +63,9 @@ class InputValidator:
                 logger.warning(
                     f"Potential prompt injection detected in query: {query_stripped[:50]}..."
                 )
-                # Don't block completely, but log for monitoring
-                # In production, you might want to return False here
+                # Block if security mode is enabled
+                if cls.BLOCK_PROMPT_INJECTION:
+                    return False, "Query contains potentially unsafe patterns and was blocked for security"
 
         # Check for excessive special characters (potential attack)
         special_char_ratio = sum(not c.isalnum() and not c.isspace() for c in query_stripped) / len(query_stripped)
@@ -99,6 +103,9 @@ class InputValidator:
                 logger.warning(
                     f"Potential prompt injection detected in ticket body: {body[:50]}..."
                 )
+                # Block if security mode is enabled
+                if cls.BLOCK_PROMPT_INJECTION:
+                    return False, "Ticket contains potentially unsafe patterns and was blocked for security"
 
         return True, None
 

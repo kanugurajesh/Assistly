@@ -67,15 +67,15 @@ class RAGCache:
     @staticmethod
     def _cache_key(text: str) -> str:
         """
-        Generate cache key from text using MD5 hash.
+        Generate cache key from text using SHA256 hash.
 
         Args:
             text: Input text
 
         Returns:
-            MD5 hash as hex string
+            SHA256 hash as hex string
         """
-        return hashlib.md5(text.encode('utf-8')).hexdigest()
+        return hashlib.sha256(text.encode('utf-8')).hexdigest()
 
     @staticmethod
     def _search_cache_key(query: str, top_k: int, score_threshold: float, collection: str) -> str:
@@ -92,7 +92,7 @@ class RAGCache:
             Cache key
         """
         key_components = f"{query}|{top_k}|{score_threshold}|{collection}"
-        return hashlib.md5(key_components.encode('utf-8')).hexdigest()
+        return hashlib.sha256(key_components.encode('utf-8')).hexdigest()
 
     # ========== Embedding Cache ==========
 
@@ -246,47 +246,60 @@ class RAGCache:
             total = hits + misses
             return (hits / total * 100) if total > 0 else 0.0
 
-        with self.embedding_lock, self.search_lock, self.classification_lock:
-            return {
-                "embedding": {
-                    "size": len(self.embedding_cache),
-                    "max_size": self.embedding_cache.maxsize,
-                    "hits": self.stats["embedding_hits"],
-                    "misses": self.stats["embedding_misses"],
-                    "hit_rate": hit_rate(
-                        self.stats["embedding_hits"],
-                        self.stats["embedding_misses"]
-                    ),
-                },
-                "search": {
-                    "size": len(self.search_cache),
-                    "max_size": self.search_cache.maxsize,
-                    "hits": self.stats["search_hits"],
-                    "misses": self.stats["search_misses"],
-                    "hit_rate": hit_rate(
-                        self.stats["search_hits"],
-                        self.stats["search_misses"]
-                    ),
-                },
-                "classification": {
-                    "size": len(self.classification_cache),
-                    "max_size": self.classification_cache.maxsize,
-                    "hits": self.stats["classification_hits"],
-                    "misses": self.stats["classification_misses"],
-                    "hit_rate": hit_rate(
-                        self.stats["classification_hits"],
-                        self.stats["classification_misses"]
-                    ),
-                },
+        # Acquire locks in consistent order to prevent deadlocks
+        # Always acquire in the same order: embedding -> search -> classification
+        with self.embedding_lock:
+            embedding_stats = {
+                "size": len(self.embedding_cache),
+                "max_size": self.embedding_cache.maxsize,
+                "hits": self.stats["embedding_hits"],
+                "misses": self.stats["embedding_misses"],
+                "hit_rate": hit_rate(
+                    self.stats["embedding_hits"],
+                    self.stats["embedding_misses"]
+                ),
             }
 
+        with self.search_lock:
+            search_stats = {
+                "size": len(self.search_cache),
+                "max_size": self.search_cache.maxsize,
+                "hits": self.stats["search_hits"],
+                "misses": self.stats["search_misses"],
+                "hit_rate": hit_rate(
+                    self.stats["search_hits"],
+                    self.stats["search_misses"]
+                ),
+            }
+
+        with self.classification_lock:
+            classification_stats = {
+                "size": len(self.classification_cache),
+                "max_size": self.classification_cache.maxsize,
+                "hits": self.stats["classification_hits"],
+                "misses": self.stats["classification_misses"],
+                "hit_rate": hit_rate(
+                    self.stats["classification_hits"],
+                    self.stats["classification_misses"]
+                ),
+            }
+
+        return {
+            "embedding": embedding_stats,
+            "search": search_stats,
+            "classification": classification_stats,
+        }
+
     def clear_all(self) -> None:
-        """Clear all caches."""
-        with self.embedding_lock, self.search_lock, self.classification_lock:
+        """Clear all caches. Acquires locks in consistent order to prevent deadlocks."""
+        # Acquire locks in consistent order: embedding -> search -> classification
+        with self.embedding_lock:
             self.embedding_cache.clear()
+        with self.search_lock:
             self.search_cache.clear()
+        with self.classification_lock:
             self.classification_cache.clear()
-            logger.info("All caches cleared")
+        logger.info("All caches cleared")
 
     def clear_embedding_cache(self) -> None:
         """Clear only embedding cache."""
@@ -309,18 +322,26 @@ class RAGCache:
 
 # Global cache instance (singleton pattern)
 _global_cache = None
+_global_cache_lock = Lock()
 
 
 def get_cache() -> RAGCache:
     """
     Get the global cache instance (singleton).
+    Thread-safe implementation using double-checked locking.
 
     Returns:
         RAGCache instance
     """
     global _global_cache
+
+    # Double-checked locking pattern for thread-safe singleton
     if _global_cache is None:
-        _global_cache = RAGCache()
+        with _global_cache_lock:
+            if _global_cache is None:
+                _global_cache = RAGCache()
+                logger.info("Global cache instance created")
+
     return _global_cache
 
 
