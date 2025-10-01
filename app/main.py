@@ -359,21 +359,12 @@ def process_sample_question(sample_text):
                     response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                     sources = response_data.get('sources', [])
                     response_type = 'rag'
-
-                    # Include enhanced search information
-                    search_info = {
-                        "query_enhancement_enabled": response_data.get('query_enhancement_enabled', False),
-                        "hybrid_search_enabled": response_data.get('hybrid_search_enabled', False),
-                        "search_methods_used": response_data.get('search_methods_used', []),
-                        "retrieved_chunks": response_data.get('retrieved_chunks', 0)
-                    }
                 else:
                     primary_topic = routing_decision['primary_topic']
                     classified_topics = routing_decision['classified_topics']
                     response_content = generate_routing_message(primary_topic, classified_topics)
                     sources = []
                     response_type = 'routing'
-                    search_info = None
 
                 # Add conversation to memory
                 if session_id:
@@ -393,9 +384,6 @@ def process_sample_question(sample_text):
 
                 if sources:
                     assistant_message["sources"] = sources
-
-                if search_info:
-                    assistant_message["search_info"] = search_info
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
@@ -738,36 +726,6 @@ elif page == "💬 Chat Agent":
                         st.code(message["error_details"], language="text")
 
                     st.markdown("</div>", unsafe_allow_html=True)
-                
-                # Show enhanced search information if available
-                if "search_info" in message:
-                    search_info = message["search_info"]
-                    st.markdown("""
-                    <div style="background: #1e40af; border: 1px solid #3b82f6; border-radius: 0.5rem; padding: 1rem; margin: 0.5rem 0; color: white;">
-                        <h4>🔍 Search Enhancement Details</h4>
-                    """, unsafe_allow_html=True)
-
-                    col1, col2 = st.columns(2)
-                    with col1:
-                        if search_info.get("query_enhancement_enabled"):
-                            st.markdown("✅ **Query Enhancement**: Active")
-                        else:
-                            st.markdown("❌ **Query Enhancement**: Disabled")
-
-                        if search_info.get("hybrid_search_enabled"):
-                            st.markdown("✅ **Hybrid Search**: Active")
-                        else:
-                            st.markdown("❌ **Hybrid Search**: Vector Only")
-
-                    with col2:
-                        methods = search_info.get("search_methods_used", [])
-                        if methods:
-                            st.markdown(f"**Search Methods**: {', '.join(methods).title()}")
-
-                        chunks = search_info.get("retrieved_chunks", 0)
-                        st.markdown(f"**Retrieved Chunks**: {chunks}")
-
-                    st.markdown("</div>", unsafe_allow_html=True)
 
                 # Show sources if available
                 if "sources" in message and message["sources"]:
@@ -830,14 +788,6 @@ elif page == "💬 Chat Agent":
                         response_content = response_data.get('answer', 'I apologize, but I could not generate a response at this time.')
                         sources = response_data.get('sources', [])
                         response_type = 'rag'
-
-                        # Include enhanced search information
-                        search_info = {
-                            "query_enhancement_enabled": response_data.get('query_enhancement_enabled', False),
-                            "hybrid_search_enabled": response_data.get('hybrid_search_enabled', False),
-                            "search_methods_used": response_data.get('search_methods_used', []),
-                            "retrieved_chunks": response_data.get('retrieved_chunks', 0)
-                        }
                     else:
                         # Generate routing response
                         primary_topic = routing_decision['primary_topic']
@@ -845,7 +795,6 @@ elif page == "💬 Chat Agent":
                         response_content = generate_routing_message(primary_topic, classified_topics)
                         sources = []
                         response_type = 'routing'
-                        search_info = None
 
                     # Add conversation to memory
                     if session_id:
@@ -862,9 +811,6 @@ elif page == "💬 Chat Agent":
 
                     if sources:
                         assistant_message["sources"] = sources
-
-                    if search_info:
-                        assistant_message["search_info"] = search_info
 
                     st.session_state.messages.append(assistant_message)
 
@@ -925,8 +871,6 @@ elif page == "⚙️ Settings":
             # Search Settings
             'top_k': 5,
             'score_threshold': 0.3,
-            'hybrid_vector_weight': 1.0,
-            'hybrid_keyword_weight': 0.0,
             'collection_name': 'atlan_docs',  # Default collection
 
             # Model Settings
@@ -937,7 +881,6 @@ elif page == "⚙️ Settings":
 
             # Feature Toggles
             'enable_query_enhancement': False,
-            'enable_hybrid_search': True,
 
             # UI Settings
             'show_analysis': True,
@@ -953,8 +896,6 @@ elif page == "⚙️ Settings":
         - **Collection**: Which Qdrant collection to search in
         - **TOP_K**: Number of most relevant documents to find
         - **Score Threshold**: Minimum similarity score to include results
-        - **Search Weights**: Balance between vector (semantic) and keyword (exact) search
-          - Weights are auto-balanced to sum to 1.0 (e.g., Vector 0.7 → Keyword 0.3)
 
         **🤖 Model Settings**: Configure the AI model behavior
         - **LLM Model**: Which OpenAI model to use for responses
@@ -962,7 +903,6 @@ elif page == "⚙️ Settings":
         - **Max Tokens**: Maximum length of AI responses
 
         **⚡ Features**: Enable/disable advanced RAG capabilities
-        - **Hybrid Search**: Combine semantic + keyword search for better results
         - **Query Enhancement**: Use AI to improve search queries
 
         **🔀 Routing Settings**: Configure which topics use AI vs team routing
@@ -1097,41 +1037,6 @@ elif page == "⚙️ Settings":
                 help="Minimum similarity score for including search results"
             )
 
-        with col2:
-            # Auto-balancing hybrid search weights
-            st.markdown("**Hybrid Search Weights** (Auto-balanced to sum = 1.0)")
-
-            # Vector weight slider with callback
-            vector_weight = st.slider(
-                "Vector search weight",
-                min_value=0.0, max_value=1.0,
-                value=st.session_state.rag_settings['hybrid_vector_weight'],
-                step=0.1,
-                help="Weight given to vector search results (keyword weight auto-adjusts)",
-                key="vector_weight_slider"
-            )
-
-            # Auto-calculate keyword weight
-            keyword_weight = 1.0 - vector_weight
-
-            # Update session state with balanced weights
-            st.session_state.rag_settings['hybrid_vector_weight'] = vector_weight
-            st.session_state.rag_settings['hybrid_keyword_weight'] = keyword_weight
-
-            # Display keyword weight (read-only)
-            st.slider(
-                "Keyword search weight (auto-calculated)",
-                min_value=0.0, max_value=1.0,
-                value=keyword_weight,
-                step=0.1,
-                help="Automatically calculated as (1.0 - vector weight)",
-                disabled=True,
-                key="keyword_weight_display"
-            )
-
-            # Show current balance
-            st.info(f"💡 **Current Balance**: Vector {vector_weight:.1f} + Keyword {keyword_weight:.1f} = {vector_weight + keyword_weight:.1f}")
-
     with tab2:
         st.markdown("### Language Model Configuration")
 
@@ -1173,32 +1078,17 @@ elif page == "⚙️ Settings":
     with tab3:
         st.markdown("### Feature Toggles")
 
-        col1, col2 = st.columns(2)
-
-        with col1:
-            st.session_state.rag_settings['enable_hybrid_search'] = st.checkbox(
-                "Enable hybrid search",
-                value=st.session_state.rag_settings['enable_hybrid_search'],
-                help="Combine vector and keyword search for better results"
-            )
-
-        with col2:
-            st.session_state.rag_settings['enable_query_enhancement'] = st.checkbox(
-                "Enable query enhancement",
-                value=st.session_state.rag_settings['enable_query_enhancement'],
-                help="Use GPT-4o to enhance user queries before search"
-            )
+        st.session_state.rag_settings['enable_query_enhancement'] = st.checkbox(
+            "Enable query enhancement",
+            value=st.session_state.rag_settings['enable_query_enhancement'],
+            help="Use GPT-4o to enhance user queries before search"
+        )
 
         # Show current feature status
         st.markdown("### Current Feature Status")
         if st.session_state.rag_pipeline:
-            col1, col2 = st.columns(2)
-            with col1:
-                hybrid_status = "✅ Active" if st.session_state.rag_settings['enable_hybrid_search'] else "❌ Disabled"
-                st.info(f"**Hybrid Search**: {hybrid_status}")
-            with col2:
-                enhancement_status = "✅ Active" if st.session_state.rag_settings['enable_query_enhancement'] else "❌ Disabled"
-                st.info(f"**Query Enhancement**: {enhancement_status}")
+            enhancement_status = "✅ Active" if st.session_state.rag_settings['enable_query_enhancement'] else "❌ Disabled"
+            st.info(f"**Query Enhancement**: {enhancement_status}")
 
     with tab4:
         st.markdown("### Response Routing Configuration")
@@ -1273,14 +1163,6 @@ elif page == "⚙️ Settings":
     settings = st.session_state.rag_settings
 
     # Check for potentially problematic configurations
-    # Note: Weight balance is automatically maintained, so no need to check for both weights being 0
-
-    if settings['enable_hybrid_search'] and settings['hybrid_vector_weight'] == 0:
-        warnings.append("⚠️ Vector search disabled (weight = 0) - only keyword search will be used, may miss semantic matches")
-
-    if settings['enable_hybrid_search'] and settings['hybrid_keyword_weight'] == 0:
-        warnings.append("💡 Keyword search disabled (weight = 0) - only vector search will be used, may miss exact term matches")
-
     if settings['temperature'] > 1.5:
         warnings.append("⚠️ High temperature (>1.5) may produce inconsistent responses")
 
@@ -1334,15 +1216,12 @@ elif page == "⚙️ Settings":
             st.session_state.rag_settings = {
                 'top_k': 5,
                 'score_threshold': 0.3,
-                'hybrid_vector_weight': 1.0,
-                'hybrid_keyword_weight': 0.0,
                 'collection_name': 'atlan_docs',
                 'max_tokens': 1000,
                 'temperature': 0.3,
                 'classification_temperature': 0.1,
                 'llm_model': 'gpt-4o',
                 'enable_query_enhancement': False,
-                'enable_hybrid_search': True,
                 'show_analysis': True,
                 'rag_topics': ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO']
             }

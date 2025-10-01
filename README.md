@@ -1,6 +1,6 @@
 # Atlan Customer Support Copilot
 
-An advanced AI-powered customer support system that automatically classifies tickets and provides intelligent responses using state-of-the-art Retrieval-Augmented Generation (RAG) with hybrid search, query enhancement, and optimized chunking strategies.
+An advanced AI-powered customer support system that automatically classifies tickets and provides intelligent responses using Retrieval-Augmented Generation (RAG) with query enhancement and optimized chunking strategies.
 
 ## 🌟 Features
 
@@ -15,10 +15,8 @@ An advanced AI-powered customer support system that automatically classifies tic
 - **Dynamic Settings Management**: Comprehensive settings page for real-time pipeline configuration
 
 ### Advanced RAG Features
-- **Hybrid Search**: Combines vector similarity and BM25 keyword search for optimal relevance
 - **Query Enhancement**: GPT-4o powered query expansion for technical terms (configurable)
 - **Enhanced Chunking**: Code block preservation with intelligent markdown structure awareness
-- **Smart Reranking**: Configurable weighted merging of vector and keyword search results
 - **Quality Metrics**: Chunk quality indicators including code detection and header analysis
 - **Real-time Configuration**: Dynamic settings updates without application restart
 - **Settings Import/Export**: JSON-based configuration backup and sharing
@@ -43,16 +41,6 @@ An advanced AI-powered customer support system that automatically classifies tic
 
 ### 2. Advanced Technology Stack Choices
 
-#### Hybrid Search: Vector + BM25 vs. Pure Vector Search
-**Decision**: Implement hybrid search combining vector similarity and BM25 keyword search.
-
-**Why**:
-- **Technical Term Precision**: BM25 excels at exact matches for technical terms, APIs, and product names.
-- **Semantic Understanding**: Vector search captures conceptual relationships and context.
-- **Complementary Strengths**: Vector search for "how to authenticate" + BM25 for "SAML SSO" = comprehensive coverage.
-- **Fallback Strategy**: Graceful degradation to vector-only if BM25 fails.
-
-**Trade-off**: System complexity and processing overhead vs. significantly improved retrieval quality for technical documentation.
 
 #### Query Enhancement: GPT-4o Expansion vs. Direct Search
 **Decision**: Optional GPT-4o query enhancement with configurable toggle.
@@ -87,16 +75,6 @@ An advanced AI-powered customer support system that automatically classifies tic
 
 **Trade-off**: Configuration complexity vs. deployment flexibility and performance optimization.
 
-### 4. Smart Reranking Strategy
-**Decision**: Configurable weighted fusion of vector and BM25 results with intelligent deduplication.
-
-**Why**:
-- **Flexible Relevance**: Configurable weights allow optimization for different use cases.
-- **Exact Match Boost**: BM25 results receive configurable weight for technical precision.
-- **Deduplication**: Documents found by both methods receive relevance boost.
-- **Empirical Optimization**: Default weights can be tuned based on specific documentation types.
-
-**Trade-off**: Algorithm complexity vs. superior result ranking and relevance.
 
 ### 5. Dual Collection Strategy
 **Decision**: Separate "enhanced" and "standard" Qdrant collections for A/B testing.
@@ -112,12 +90,12 @@ An advanced AI-powered customer support system that automatically classifies tic
 ### 6. Technology Stack for Advanced RAG
 
 #### MongoDB + Qdrant vs. Single Database
-**Decision**: Dual storage with enhanced Qdrant collections for hybrid search.
+**Decision**: Dual storage with Qdrant vector database for RAG.
 
 **Why**:
 - **Data Integrity**: MongoDB preserves original content for reprocessing and debugging.
-- **Hybrid Performance**: Qdrant's vector capabilities + in-memory BM25 for keyword search.
-- **Collection Management**: Separate enhanced collections for advanced features.
+- **Vector Performance**: Qdrant's specialized vector search capabilities.
+- **Collection Management**: Flexible collection management for different datasets.
 - **Backup Strategy**: Multiple data preservation layers prevent data loss.
 
 **Trade-off**: Infrastructure complexity vs. performance, flexibility, and data safety.
@@ -133,16 +111,16 @@ An advanced AI-powered customer support system that automatically classifies tic
 
 **Trade-off**: Ongoing API costs vs. response quality, development speed, and advanced capabilities.
 
-#### FastEmbed BGE-small + rank-bm25 vs. Single Approach
-**Decision**: Hybrid embedding strategy with local FastEmbed and in-memory BM25.
+#### FastEmbed BGE-small for Embeddings
+**Decision**: Local FastEmbed for vector embeddings.
 
 **Why**:
 - **Cost Efficiency**: Free local embeddings vs. OpenAI embedding API costs.
 - **Privacy**: Document content never leaves local environment.
 - **Performance**: 384-dim embeddings balance quality with speed.
-- **Hybrid Capability**: BM25 enables exact term matching for technical precision.
+- **Simplicity**: Straightforward vector search implementation.
 
-**Trade-off**: Implementation complexity vs. cost savings, privacy, and enhanced search capabilities.
+**Trade-off**: No hybrid search complexity, but simpler and more maintainable.
 
 ## 🏗️ Architecture
 
@@ -275,8 +253,7 @@ An advanced AI-powered customer support system that automatically classifies tic
 ### AI/ML
 - **OpenAI GPT-4o**: LLM for classification, response generation, and query enhancement
 - **FastEmbed BAAI/bge-small-en-v1.5**: Vector embeddings for semantic search (384 dimensions)
-- **Qdrant Cloud**: Vector database with hybrid search capabilities
-- **rank-bm25**: BM25 algorithm for keyword search and hybrid retrieval
+- **Qdrant Cloud**: Vector database for semantic search
 - **LangChain**: Enhanced text processing with advanced chunking strategies
 
 ### Application
@@ -816,10 +793,7 @@ The system analyzes tickets using structured prompts to generate:
 
 ### Advanced RAG Configuration (app/rag_pipeline.py)
 - `ENABLE_QUERY_ENHANCEMENT`: Toggle GPT-4o query expansion (default: False)
-- `ENABLE_HYBRID_SEARCH`: Toggle vector + BM25 hybrid search (default: True)
-- `HYBRID_VECTOR_WEIGHT`: Configurable weight for vector search results (default: 1.0)
-- `HYBRID_KEYWORD_WEIGHT`: Configurable weight for BM25 keyword results (default: 0.0)
-- `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs_enhanced")
+- `COLLECTION_NAME`: Qdrant collection name (default: "atlan_docs")
 - `SCORE_THRESHOLD`: Minimum similarity threshold (default: 0.3)
 - `TOP_K`: Number of search results to retrieve (default: 5)
 - `MAX_TOKENS`: Maximum response length (default: 1000)

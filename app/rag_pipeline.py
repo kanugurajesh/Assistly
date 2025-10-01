@@ -5,7 +5,6 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 from openai import OpenAI
-from rank_bm25 import BM25Okapi
 
 from memory_manager import get_memory_manager
 
@@ -56,56 +55,11 @@ CLASSIFICATION_TEMPERATURE = 0.1  # Lower temperature for more consistent classi
 
 # Advanced RAG Configuration
 ENABLE_QUERY_ENHANCEMENT = False  # Temporarily disabled - query enhancement using GPT-4o
-ENABLE_HYBRID_SEARCH = True  # Enable hybrid vector + keyword search
-HYBRID_VECTOR_WEIGHT = 1  # Weight for vector search results (0.0-1.0)
-HYBRID_KEYWORD_WEIGHT = 0  # Weight for keyword search results (0.0-1.0)
 
 class AtlanRAG:
     def __init__(self) -> None:
         self.openai_client = openai_client
         self.embedding_model = TextEmbedding(model_name=EMBEDDING_MODEL)
-        self.bm25_index = None
-        self.document_texts = []
-        self.document_metadata = []
-        self._initialize_bm25_index()
-
-    def _initialize_bm25_index(self) -> None:
-        """Initialize BM25 index from Qdrant documents for hybrid search"""
-        if not ENABLE_HYBRID_SEARCH:
-            return
-
-        try:
-            # Get all documents from Qdrant for BM25 indexing
-            scroll_result = qdrant_client.scroll(
-                collection_name=COLLECTION_NAME,
-                limit=10000,  # Adjust based on your document count
-                with_payload=True
-            )
-
-            documents = scroll_result[0]
-            self.document_texts = []
-            self.document_metadata = []
-
-            for doc in documents:
-                text = doc.payload.get("text", "")
-                if text.strip():
-                    self.document_texts.append(text)
-                    self.document_metadata.append({
-                        "id": doc.id,
-                        "source_url": doc.payload.get("source_url", ""),
-                        "title": doc.payload.get("title", ""),
-                        "doc_type": doc.payload.get("doc_type", "")
-                    })
-
-            # Create BM25 index
-            if self.document_texts:
-                tokenized_texts = [text.lower().split() for text in self.document_texts]
-                self.bm25_index = BM25Okapi(tokenized_texts)
-                print(f"Initialized BM25 index with {len(self.document_texts)} documents")
-
-        except Exception as e:
-            print(f"Warning: Could not initialize BM25 index: {e}")
-            self.bm25_index = None
 
     def enhance_query(self, query: str) -> str:
         """Enhance user query using GPT-4o for better search results"""
@@ -141,93 +95,6 @@ Return only the enhanced query, no explanation:"""
             print(f"Query enhancement failed: {e}, using original query")
             return query
 
-    def keyword_search(self, query: str, top_k: int = TOP_K) -> List[Dict]:
-        """Perform BM25 keyword search"""
-        if not self.bm25_index or not ENABLE_HYBRID_SEARCH:
-            return []
-
-        try:
-            query_tokens = query.lower().split()
-            scores = self.bm25_index.get_scores(query_tokens)
-
-            # Get top-k results with scores
-            top_indices = sorted(range(len(scores)), key=lambda i: scores[i], reverse=True)[:top_k]
-
-            results = []
-            for idx in top_indices:
-                if scores[idx] > 0:  # Only include results with positive scores
-                    results.append({
-                        "text": self.document_texts[idx],
-                        "source_url": self.document_metadata[idx]["source_url"],
-                        "title": self.document_metadata[idx]["title"],
-                        "doc_type": self.document_metadata[idx]["doc_type"],
-                        "score": float(scores[idx]),
-                        "search_type": "keyword"
-                    })
-
-            return results
-
-        except Exception as e:
-            print(f"Keyword search failed: {e}")
-            return []
-
-    def merge_and_rerank(self, vector_results: List[Dict], keyword_results: List[Dict]) -> List[Dict]:
-        """Merge and rerank vector and keyword search results"""
-        if not ENABLE_HYBRID_SEARCH:
-            return vector_results
-
-        # Normalize scores for both result sets
-        def normalize_scores(results: List[Dict]) -> List[Dict]:
-            if not results:
-                return results
-            max_score = max(r["score"] for r in results)
-            min_score = min(r["score"] for r in results)
-            if max_score == min_score:
-                return results
-
-            normalized = []
-            for r in results:
-                normalized_score = (r["score"] - min_score) / (max_score - min_score)
-                r_copy = r.copy()
-                r_copy["normalized_score"] = normalized_score
-                normalized.append(r_copy)
-            return normalized
-
-        # Normalize both result sets
-        vector_results = normalize_scores(vector_results)
-        keyword_results = normalize_scores(keyword_results)
-
-        # Combine and deduplicate based on text content
-        combined_results = {}
-
-        # Add vector results with weight
-        for result in vector_results:
-            text_key = result["text"][:100]  # Use first 100 chars as key
-            if text_key not in combined_results:
-                result["final_score"] = result.get("normalized_score", result["score"]) * HYBRID_VECTOR_WEIGHT
-                result["search_types"] = ["vector"]
-                combined_results[text_key] = result
-            else:
-                # Update score if this is a duplicate
-                combined_results[text_key]["final_score"] += result.get("normalized_score", result["score"]) * HYBRID_VECTOR_WEIGHT
-                combined_results[text_key]["search_types"].append("vector")
-
-        # Add keyword results with weight
-        for result in keyword_results:
-            text_key = result["text"][:100]
-            if text_key not in combined_results:
-                result["final_score"] = result.get("normalized_score", result["score"]) * HYBRID_KEYWORD_WEIGHT
-                result["search_types"] = ["keyword"]
-                combined_results[text_key] = result
-            else:
-                # Boost score for documents found by both methods
-                combined_results[text_key]["final_score"] += result.get("normalized_score", result["score"]) * HYBRID_KEYWORD_WEIGHT
-                combined_results[text_key]["search_types"].append("keyword")
-
-        # Sort by final score and return top results
-        final_results = sorted(combined_results.values(), key=lambda x: x["final_score"], reverse=True)[:TOP_K]
-
-        return final_results
 
     def generate_query_embedding(self, query: str) -> List[float]:
         """Generate embedding for user query using FastEmbed"""
@@ -245,25 +112,12 @@ Return only the enhanced query, no explanation:"""
             return []
     
     def search_documents(self, query: str, top_k: int = TOP_K) -> List[Dict]:
-        """Search for relevant documents using enhanced hybrid approach"""
-        # Step 1: Enhance the query
+        """Search for relevant documents using vector search"""
+        # Step 1: Enhance the query (optional)
         enhanced_query = self.enhance_query(query)
 
         # Step 2: Vector search
-        vector_results = self._vector_search(enhanced_query, top_k)
-
-        # Step 3: Keyword search (if hybrid search is enabled)
-        keyword_results = []
-        if ENABLE_HYBRID_SEARCH:
-            keyword_results = self.keyword_search(enhanced_query, top_k)
-
-        # Step 4: Merge and rerank results
-        if ENABLE_HYBRID_SEARCH and keyword_results:
-            final_results = self.merge_and_rerank(vector_results, keyword_results)
-            print(f"Hybrid search: {len(vector_results)} vector + {len(keyword_results)} keyword → {len(final_results)} final")
-            return final_results
-        else:
-            return vector_results
+        return self._vector_search(enhanced_query, top_k)
 
     def _vector_search(self, query: str, top_k: int = TOP_K) -> List[Dict]:
         """Perform vector search in Qdrant"""
@@ -318,24 +172,14 @@ Return only the enhanced query, no explanation:"""
         return sources
     
     def generate_rag_response(self, query: str, context_docs: List[Dict], session_id: Optional[str] = None) -> str:
-        """Generate response using retrieved context with enhanced search info and conversation memory"""
+        """Generate response using retrieved context with conversation memory"""
         if not context_docs:
             return "I couldn't find relevant information in the Atlan documentation to answer your question."
 
-        # Prepare context from retrieved documents with search method info
+        # Prepare context from retrieved documents
         context_parts = []
-        search_methods = []
         for i, doc in enumerate(context_docs, 1):
-            search_info = ""
-            if "search_types" in doc:
-                methods = ", ".join(doc["search_types"])
-                search_info = f" [Found via: {methods}]"
-                search_methods.extend(doc["search_types"])
-            elif "search_type" in doc:
-                search_info = f" [Found via: {doc['search_type']}]"
-                search_methods.append(doc["search_type"])
-
-            context_parts.append(f"Context {i}:\nSource: {doc['title']}{search_info}\nContent: {doc['text']}\n")
+            context_parts.append(f"Context {i}:\nSource: {doc['title']}\nContent: {doc['text']}\n")
 
         context = "\n".join(context_parts)
 
@@ -346,13 +190,6 @@ Return only the enhanced query, no explanation:"""
             conversation_history = memory_manager.get_conversation_context(session_id, include_last_n=5)
             if conversation_history:
                 conversation_context = f"\nPrevious Conversation:\n{conversation_history}\n"
-
-        # Log search method statistics
-        if search_methods:
-            method_counts = {}
-            for method in search_methods:
-                method_counts[method] = method_counts.get(method, 0) + 1
-            print(f"Search methods used: {method_counts}")
 
         prompt = f"""You are a helpful assistant that answers questions about Atlan based on the provided documentation context.
 
@@ -389,22 +226,12 @@ Return only the enhanced query, no explanation:"""
             return "I encountered an unexpected error while generating a response. Please try again."
     
     def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
-        """Main RAG pipeline function with enhanced search tracking and conversation memory"""
+        """Main RAG pipeline function with conversation memory"""
         # Search for relevant documents
         search_results = self.search_documents(query)
 
         # Extract unique sources
         sources = self.extract_unique_sources(search_results)
-
-        # Analyze search method usage
-        search_methods_used = []
-        hybrid_results = False
-        for result in search_results:
-            if "search_types" in result:
-                search_methods_used.extend(result["search_types"])
-                hybrid_results = True
-            elif "search_type" in result:
-                search_methods_used.append(result["search_type"])
 
         # Generate response with conversation context
         answer = self.generate_rag_response(query, search_results, session_id)
@@ -413,8 +240,6 @@ Return only the enhanced query, no explanation:"""
             "answer": answer,
             "sources": sources,
             "retrieved_chunks": len(search_results),
-            "search_methods_used": list(set(search_methods_used)),
-            "hybrid_search_enabled": ENABLE_HYBRID_SEARCH,
             "query_enhancement_enabled": ENABLE_QUERY_ENHANCEMENT,
             "search_results": search_results  # For debugging
         }
@@ -555,9 +380,6 @@ class RAGPipeline:
             'classification_temperature': CLASSIFICATION_TEMPERATURE,
             'llm_model': LLM_MODEL,
             'enable_query_enhancement': ENABLE_QUERY_ENHANCEMENT,
-            'enable_hybrid_search': ENABLE_HYBRID_SEARCH,
-            'hybrid_vector_weight': HYBRID_VECTOR_WEIGHT,
-            'hybrid_keyword_weight': HYBRID_KEYWORD_WEIGHT,
             'collection_name': COLLECTION_NAME
         }
 
@@ -569,8 +391,7 @@ class RAGPipeline:
 
             # Update global constants (for new instances)
             global TOP_K, SCORE_THRESHOLD, MAX_TOKENS, TEMPERATURE, CLASSIFICATION_TEMPERATURE
-            global LLM_MODEL, ENABLE_QUERY_ENHANCEMENT, ENABLE_HYBRID_SEARCH
-            global HYBRID_VECTOR_WEIGHT, HYBRID_KEYWORD_WEIGHT, COLLECTION_NAME
+            global LLM_MODEL, ENABLE_QUERY_ENHANCEMENT, COLLECTION_NAME
 
             if 'top_k' in new_settings:
                 TOP_K = new_settings['top_k']
@@ -588,19 +409,7 @@ class RAGPipeline:
                 ENABLE_QUERY_ENHANCEMENT = new_settings['enable_query_enhancement']
             if 'collection_name' in new_settings:
                 COLLECTION_NAME = new_settings['collection_name']
-                # Reinitialize BM25 index when collection changes
-                if hasattr(self.rag, '_initialize_bm25_index'):
-                    print(f"Switching to collection: {COLLECTION_NAME}")
-                    self.rag._initialize_bm25_index()
-            if 'enable_hybrid_search' in new_settings:
-                ENABLE_HYBRID_SEARCH = new_settings['enable_hybrid_search']
-                # Reinitialize BM25 index if hybrid search settings changed
-                if hasattr(self.rag, '_initialize_bm25_index'):
-                    self.rag._initialize_bm25_index()
-            if 'hybrid_vector_weight' in new_settings:
-                HYBRID_VECTOR_WEIGHT = new_settings['hybrid_vector_weight']
-            if 'hybrid_keyword_weight' in new_settings:
-                HYBRID_KEYWORD_WEIGHT = new_settings['hybrid_keyword_weight']
+                print(f"Switched to collection: {COLLECTION_NAME}")
 
             return True
         except Exception as e:
