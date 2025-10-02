@@ -2,7 +2,7 @@
 Configuration validation using Pydantic for type safety and validation.
 """
 import logging
-from typing import Optional, List, Tuple
+from typing import Optional, List
 from pydantic import BaseModel, Field, field_validator, ValidationError, ConfigDict
 
 logger = logging.getLogger(__name__)
@@ -217,75 +217,6 @@ class ApplicationConfig(BaseModel):
     )
 
 
-def validate_rag_settings(settings: dict) -> Tuple[bool, Optional[str], Optional[RAGSettings]]:
-    """
-    Validate RAG settings dictionary.
-
-    Args:
-        settings: Dictionary of settings to validate
-
-    Returns:
-        Tuple of (is_valid, error_message, validated_settings)
-    """
-    try:
-        validated = RAGSettings(**settings)
-        return True, None, validated
-    except ValidationError as e:
-        error_msg = str(e)
-        logger.error(f"Settings validation failed: {error_msg}")
-        return False, error_msg, None
-
-
-def get_warnings_for_settings(settings: RAGSettings) -> List[str]:
-    """
-    Get warnings for potentially problematic settings.
-
-    Args:
-        settings: Validated settings
-
-    Returns:
-        List of warning messages
-    """
-    warnings = []
-
-    # Check for high temperature
-    if settings.temperature > 1.0:
-        warnings.append(
-            f"Temperature {settings.temperature} is high. "
-            "Responses may be inconsistent."
-        )
-
-    # Check for high top_k
-    if settings.top_k > 10:
-        warnings.append(
-            f"top_k {settings.top_k} is high. "
-            "This increases costs and may include irrelevant results."
-        )
-
-    # Check for low score threshold
-    if settings.score_threshold < 0.2:
-        warnings.append(
-            f"score_threshold {settings.score_threshold} is low. "
-            "Results may be less relevant."
-        )
-
-    # Check if query enhancement is enabled (costs money)
-    if settings.enable_query_enhancement:
-        warnings.append(
-            "Query enhancement is enabled. "
-            "This adds an extra OpenAI API call per query."
-        )
-
-    # Check for high max_tokens
-    if settings.max_tokens > 2000:
-        warnings.append(
-            f"max_tokens {settings.max_tokens} is high. "
-            "This may increase costs significantly."
-        )
-
-    return warnings
-
-
 # Example usage for testing
 if __name__ == "__main__":
     # Valid settings
@@ -298,10 +229,6 @@ if __name__ == "__main__":
         )
         print("✅ Settings validated successfully")
         print(f"Settings: {settings.model_dump()}")
-
-        warnings = get_warnings_for_settings(settings)
-        if warnings:
-            print(f"⚠️ Warnings: {warnings}")
 
     except ValidationError as e:
         print(f"❌ Validation failed: {e}")
