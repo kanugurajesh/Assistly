@@ -1,5 +1,5 @@
 """
-Caching layer for embeddings and search results to reduce costs and improve performance.
+Caching layer for search results, classifications, and responses to reduce costs and improve performance.
 """
 import hashlib
 import logging
@@ -18,8 +18,6 @@ class RAGCache:
 
     def __init__(
         self,
-        embedding_cache_size: int = 1000,
-        embedding_ttl: int = 3600,  # 1 hour
         search_cache_size: int = 500,
         search_ttl: int = 1800,  # 30 minutes
         classification_cache_size: int = 500,
@@ -31,8 +29,6 @@ class RAGCache:
         Initialize caching layer.
 
         Args:
-            embedding_cache_size: Maximum number of embeddings to cache
-            embedding_ttl: Embedding cache TTL in seconds
             search_cache_size: Maximum number of search results to cache
             search_ttl: Search results cache TTL in seconds
             classification_cache_size: Maximum number of classifications to cache
@@ -40,10 +36,6 @@ class RAGCache:
             response_cache_size: Maximum number of responses to cache
             response_ttl: Response cache TTL in seconds
         """
-        # Embedding cache (most expensive to generate)
-        self.embedding_cache = TTLCache(maxsize=embedding_cache_size, ttl=embedding_ttl)
-        self.embedding_lock = Lock()
-
         # Search results cache (Qdrant queries)
         self.search_cache = TTLCache(maxsize=search_cache_size, ttl=search_ttl)
         self.search_lock = Lock()
@@ -58,8 +50,6 @@ class RAGCache:
 
         # Statistics
         self.stats = {
-            "embedding_hits": 0,
-            "embedding_misses": 0,
             "search_hits": 0,
             "search_misses": 0,
             "classification_hits": 0,
@@ -69,7 +59,7 @@ class RAGCache:
         }
 
         logger.info(
-            f"Cache initialized - Embeddings: {embedding_cache_size} ({embedding_ttl}s), "
+            f"Cache initialized - "
             f"Search: {search_cache_size} ({search_ttl}s), "
             f"Classification: {classification_cache_size} ({classification_ttl}s), "
             f"Response: {response_cache_size} ({response_ttl}s)"
@@ -104,46 +94,6 @@ class RAGCache:
         """
         key_components = f"{query}|{top_k}|{score_threshold}|{collection}"
         return hashlib.sha256(key_components.encode('utf-8')).hexdigest()
-
-    # ========== Embedding Cache ==========
-
-    def get_cached_embedding(self, text: str) -> Optional[List[float]]:
-        """
-        Get cached embedding for text.
-
-        Args:
-            text: Input text
-
-        Returns:
-            Cached embedding vector or None if not found
-        """
-        cache_key = self._cache_key(text)
-
-        with self.embedding_lock:
-            embedding = self.embedding_cache.get(cache_key)
-
-            if embedding is not None:
-                self.stats["embedding_hits"] += 1
-                logger.debug(f"Embedding cache HIT for text: {text[:50]}...")
-                return embedding
-            else:
-                self.stats["embedding_misses"] += 1
-                logger.debug(f"Embedding cache MISS for text: {text[:50]}...")
-                return None
-
-    def set_cached_embedding(self, text: str, embedding: List[float]) -> None:
-        """
-        Cache embedding for text.
-
-        Args:
-            text: Input text
-            embedding: Embedding vector
-        """
-        cache_key = self._cache_key(text)
-
-        with self.embedding_lock:
-            self.embedding_cache[cache_key] = embedding
-            logger.debug(f"Cached embedding for text: {text[:50]}...")
 
     # ========== Search Results Cache ==========
 
@@ -300,19 +250,7 @@ class RAGCache:
             return (hits / total * 100) if total > 0 else 0.0
 
         # Acquire locks in consistent order to prevent deadlocks
-        # Always acquire in the same order: embedding -> search -> classification
-        with self.embedding_lock:
-            embedding_stats = {
-                "size": len(self.embedding_cache),
-                "max_size": self.embedding_cache.maxsize,
-                "hits": self.stats["embedding_hits"],
-                "misses": self.stats["embedding_misses"],
-                "hit_rate": hit_rate(
-                    self.stats["embedding_hits"],
-                    self.stats["embedding_misses"]
-                ),
-            }
-
+        # Always acquire in the same order: search -> classification -> response
         with self.search_lock:
             search_stats = {
                 "size": len(self.search_cache),
@@ -350,7 +288,6 @@ class RAGCache:
             }
 
         return {
-            "embedding": embedding_stats,
             "search": search_stats,
             "classification": classification_stats,
             "response": response_stats,
@@ -358,9 +295,7 @@ class RAGCache:
 
     def clear_all(self) -> None:
         """Clear all caches. Acquires locks in consistent order to prevent deadlocks."""
-        # Acquire locks in consistent order: embedding -> search -> classification -> response
-        with self.embedding_lock:
-            self.embedding_cache.clear()
+        # Acquire locks in consistent order: search -> classification -> response
         with self.search_lock:
             self.search_cache.clear()
         with self.classification_lock:
@@ -368,12 +303,6 @@ class RAGCache:
         with self.response_lock:
             self.response_cache.clear()
         logger.info("All caches cleared")
-
-    def clear_embedding_cache(self) -> None:
-        """Clear only embedding cache."""
-        with self.embedding_lock:
-            self.embedding_cache.clear()
-            logger.info("Embedding cache cleared")
 
     def clear_search_cache(self) -> None:
         """Clear only search cache."""

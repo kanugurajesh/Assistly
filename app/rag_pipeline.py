@@ -177,13 +177,7 @@ Return only the enhanced query, no explanation:"""
 
 
     def generate_query_embedding(self, query: str) -> List[float]:
-        """Generate embedding for user query using FastEmbed with caching"""
-        # Check cache first
-        cached_embedding = self.cache.get_cached_embedding(query)
-        if cached_embedding is not None:
-            logger.debug(f"Using cached embedding for query: {query[:50]}...")
-            return cached_embedding
-
+        """Generate embedding for user query using FastEmbed"""
         # Generate embedding with retry logic
         @retry_embedding_generation
         def _generate_embedding():
@@ -194,9 +188,6 @@ Return only the enhanced query, no explanation:"""
 
         try:
             embedding = _generate_embedding()
-            if embedding:
-                # Cache the result
-                self.cache.set_cached_embedding(query, embedding)
             return embedding
         except (RuntimeError, ValueError, TypeError) as e:
             logger.error(f"Error generating query embedding: {e}")
