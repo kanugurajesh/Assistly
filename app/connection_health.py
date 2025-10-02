@@ -2,8 +2,22 @@
 Connection health check utilities for monitoring database and API connections.
 """
 import logging
+import sys
 from typing import Dict, Tuple
 from datetime import datetime
+
+# Configure logging with UTF-8 encoding for Windows compatibility
+logging.basicConfig(
+    level=logging.INFO,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout)
+    ]
+)
+
+# Ensure stdout uses UTF-8 encoding on Windows
+if sys.platform == 'win32':
+    sys.stdout.reconfigure(encoding='utf-8')
 
 logger = logging.getLogger(__name__)
 
@@ -95,6 +109,11 @@ def check_all_connections() -> Dict[str, Dict]:
     Returns:
         Dictionary with health status for each service
     """
+    from pathlib import Path
+
+    # Add parent directory to path to import utils module
+    sys.path.insert(0, str(Path(__file__).parent.parent))
+
     from rag_pipeline import qdrant_client, openai_client
     from utils import get_mongodb_client, close_mongodb_client
 
