@@ -16,7 +16,6 @@ from rate_limiter import get_rate_limiter
 from retry_logic import retry_openai_call, retry_qdrant_call, retry_embedding_generation
 from cache_manager import get_cache
 from metrics import get_metrics_collector, PerformanceTimer
-from config_validation import RAGSettings, CacheSettings, RateLimitSettings, ApplicationConfig
 import uuid
 
 # Configure logging
