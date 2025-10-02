@@ -16,12 +16,32 @@ DEFAULT_DATABASE = "Cluster0"
 DEFAULT_COLLECTION = "scraped_pages"
 
 def get_mongodb_client() -> MongoClient:
-    """Get MongoDB client with environment configuration"""
+    """
+    Get MongoDB client with environment configuration and connection pooling.
+
+    Connection pool settings optimized for production:
+    - maxPoolSize: 50 - Maximum connections in pool
+    - minPoolSize: 10 - Minimum connections maintained
+    - maxIdleTimeMS: 45000 - Close idle connections after 45s
+    - serverSelectionTimeoutMS: 5000 - Fail fast on connection issues
+    - connectTimeoutMS: 10000 - 10s timeout for initial connection
+    - socketTimeoutMS: 30000 - 30s timeout for socket operations
+    """
     mongodb_uri = os.getenv("MONGODB_URI")
     if not mongodb_uri:
         raise EnvironmentError("MONGODB_URI environment variable is required")
 
-    return MongoClient(mongodb_uri)
+    return MongoClient(
+        mongodb_uri,
+        maxPoolSize=50,  # Maximum connections in pool
+        minPoolSize=10,  # Minimum connections to maintain
+        maxIdleTimeMS=45000,  # Close idle connections after 45 seconds
+        serverSelectionTimeoutMS=5000,  # Fail fast if server unavailable
+        connectTimeoutMS=10000,  # 10 second connection timeout
+        socketTimeoutMS=30000,  # 30 second socket timeout
+        retryWrites=True,  # Automatically retry write operations
+        retryReads=True,  # Automatically retry read operations
+    )
 
 def get_mongodb_collection(
     database_name: str = DEFAULT_DATABASE,

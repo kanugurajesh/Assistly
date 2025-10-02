@@ -7,6 +7,7 @@ from dotenv import load_dotenv
 from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 from openai import OpenAI
+import httpx
 
 from memory_manager import get_memory_manager
 from validators import validate_query, validate_ticket, sanitize_text
@@ -54,16 +55,35 @@ def validate_environment_variables() -> None:
 # Validate environment on import
 validate_environment_variables()
 
-# Initialize clients with timeouts
+# Initialize HTTP client with connection pooling for OpenAI
+http_client = httpx.Client(
+    limits=httpx.Limits(
+        max_connections=20,  # Maximum total connections
+        max_keepalive_connections=5,  # Keep 5 connections alive for reuse
+        keepalive_expiry=30.0,  # Keep connections alive for 30 seconds
+    ),
+    timeout=httpx.Timeout(30.0, connect=10.0),  # 30s total, 10s connect timeout
+)
+
+# Initialize clients with timeouts and connection pooling
 openai_client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY"),
     timeout=30.0,  # 30 second timeout for API calls
-    max_retries=2   # Retry failed requests up to 2 times
+    max_retries=2,  # Retry failed requests up to 2 times
+    http_client=http_client  # Use configured HTTP client with connection pooling
 )
+
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),
     api_key=os.getenv("QDRANT_API_KEY"),
     timeout=10.0,  # 10 second timeout for Qdrant operations
+    # Connection pool configuration for production
+    grpc_options={
+        'grpc.max_send_message_length': 100 * 1024 * 1024,  # 100MB
+        'grpc.max_receive_message_length': 100 * 1024 * 1024,  # 100MB
+        'grpc.keepalive_time_ms': 30000,  # 30s keepalive
+        'grpc.keepalive_timeout_ms': 10000,  # 10s keepalive timeout
+    }
 )
 
 # Configuration
@@ -197,6 +217,9 @@ Return only the enhanced query, no explanation:"""
 
     def _vector_search(self, query: str, top_k: int) -> List[Dict]:
         """Perform vector search in Qdrant with caching and rate limiting"""
+        import time
+        search_start = time.time()
+
         # Check search cache first
         collection = self.settings.get('collection_name', COLLECTION_NAME)
         score_threshold = self.settings.get('score_threshold', SCORE_THRESHOLD)
@@ -246,10 +269,23 @@ Return only the enhanced query, no explanation:"""
             if results:
                 self.cache.set_cached_search(query, top_k, score_threshold, collection, results)
 
+            # Record connection pool metrics for Qdrant
+            search_time = time.time() - search_start
+            self.metrics.record_connection_pool_metrics(
+                service='qdrant',
+                response_time=search_time
+            )
+
             return results
 
         except (ConnectionError, TimeoutError) as e:
             logger.error(f"Connection error in vector search: {e}")
+            # Record connection error
+            self.metrics.record_connection_pool_metrics(
+                service='qdrant',
+                connection_errors=1,
+                response_time=time.time() - search_start
+            )
             return []
         except (ValueError, KeyError) as e:
             logger.error(f"Data error in vector search: {e}")
@@ -273,6 +309,9 @@ Return only the enhanced query, no explanation:"""
     
     def generate_rag_response(self, query: str, context_docs: List[Dict], session_id: Optional[str] = None) -> str:
         """Generate response using retrieved context with conversation memory"""
+        import time
+        openai_start = time.time()
+
         if not context_docs:
             return "I couldn't find relevant information in the Atlan documentation to answer your question."
 
@@ -314,15 +353,35 @@ Return only the enhanced query, no explanation:"""
                 max_tokens=self.settings.get('max_tokens', MAX_TOKENS),
                 temperature=self.settings.get('temperature', TEMPERATURE)
             )
+
+            # Record connection pool metrics for OpenAI
+            openai_time = time.time() - openai_start
+            self.metrics.record_connection_pool_metrics(
+                service='openai',
+                response_time=openai_time
+            )
+
             return response.choices[0].message.content
         except ConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")
+            # Record connection error
+            self.metrics.record_connection_pool_metrics(
+                service='openai',
+                connection_errors=1,
+                response_time=time.time() - openai_start
+            )
             return "I'm having trouble connecting to the AI service. Please try again in a moment."
         except ValueError as e:
             logger.error(f"OpenAI API validation error: {e}")
             return "I encountered an issue with your request format. Please try rephrasing your question."
         except Exception as e:
             logger.error(f"Unexpected error generating response: {e}")
+            # Record generic error
+            self.metrics.record_connection_pool_metrics(
+                service='openai',
+                connection_errors=1,
+                response_time=time.time() - openai_start
+            )
             return "I encountered an unexpected error while generating a response. Please try again."
     
     def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:

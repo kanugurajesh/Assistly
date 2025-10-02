@@ -4,3 +4,4 @@ atlan_docs.json
 TASK.md
 __pycache__
 /*.json
+*.log

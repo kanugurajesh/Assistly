@@ -27,6 +27,18 @@ class QueryMetrics:
 
 
 @dataclass
+class ConnectionPoolMetrics:
+    """Metrics for connection pool health."""
+    service: str  # 'mongodb', 'qdrant', 'openai'
+    timestamp: datetime
+    active_connections: Optional[int] = None
+    pool_size: Optional[int] = None
+    wait_time_ms: Optional[float] = None
+    connection_errors: int = 0
+    slow_operations: int = 0  # Operations slower than threshold
+
+
+@dataclass
 class AggregateMetrics:
     """Aggregated metrics across multiple queries."""
     total_queries: int = 0
@@ -87,8 +99,12 @@ class MetricsCollector:
         """
         self.max_history = max_history
         self.query_history: List[QueryMetrics] = []
+        self.connection_pool_history: List[ConnectionPoolMetrics] = []
         self.aggregate = AggregateMetrics()
         self.lock = Lock()
+
+        # Connection pool monitoring thresholds
+        self.slow_operation_threshold = 5.0  # seconds
 
         logger.info(f"Metrics collector initialized (max history: {max_history})")
 
@@ -261,10 +277,131 @@ class MetricsCollector:
                 "p99": percentile(99),
             }
 
+    def record_connection_pool_metrics(
+        self,
+        service: str,
+        active_connections: Optional[int] = None,
+        pool_size: Optional[int] = None,
+        wait_time_ms: Optional[float] = None,
+        connection_errors: int = 0,
+        response_time: Optional[float] = None
+    ) -> None:
+        """
+        Record connection pool metrics for monitoring.
+
+        Args:
+            service: Service name ('mongodb', 'qdrant', 'openai')
+            active_connections: Number of active connections
+            pool_size: Maximum pool size
+            wait_time_ms: Time waiting for connection in milliseconds
+            connection_errors: Number of connection errors
+            response_time: Response time in seconds (for slow operation detection)
+        """
+        with self.lock:
+            # Detect slow operations
+            slow_operations = 0
+            if response_time and response_time > self.slow_operation_threshold:
+                slow_operations = 1
+                logger.warning(
+                    f"Slow {service} operation detected: {response_time:.2f}s "
+                    f"(threshold: {self.slow_operation_threshold}s) - possible connection pool issue"
+                )
+
+            # Create connection pool metrics
+            metrics = ConnectionPoolMetrics(
+                service=service,
+                timestamp=datetime.now(),
+                active_connections=active_connections,
+                pool_size=pool_size,
+                wait_time_ms=wait_time_ms,
+                connection_errors=connection_errors,
+                slow_operations=slow_operations
+            )
+
+            # Add to history
+            self.connection_pool_history.append(metrics)
+
+            # Trim history
+            if len(self.connection_pool_history) > self.max_history:
+                self.connection_pool_history.pop(0)
+
+            # Log warnings for connection pool issues
+            if active_connections and pool_size:
+                utilization = (active_connections / pool_size) * 100
+                if utilization > 80:
+                    logger.warning(
+                        f"{service} connection pool utilization high: {utilization:.1f}% "
+                        f"({active_connections}/{pool_size})"
+                    )
+
+            if wait_time_ms and wait_time_ms > 100:
+                logger.warning(
+                    f"{service} connection wait time high: {wait_time_ms:.1f}ms - "
+                    f"consider increasing pool size"
+                )
+
+            if connection_errors > 0:
+                logger.error(
+                    f"{service} connection errors: {connection_errors} - "
+                    f"check service health and network connectivity"
+                )
+
+    def get_connection_pool_stats(self, service: Optional[str] = None) -> Dict:
+        """
+        Get connection pool statistics.
+
+        Args:
+            service: Optional service name to filter by
+
+        Returns:
+            Dictionary with connection pool statistics
+        """
+        with self.lock:
+            if service:
+                metrics_list = [m for m in self.connection_pool_history if m.service == service]
+            else:
+                metrics_list = self.connection_pool_history
+
+            if not metrics_list:
+                return {"error": "No connection pool metrics available"}
+
+            # Calculate statistics by service
+            stats_by_service = defaultdict(lambda: {
+                'total_operations': 0,
+                'connection_errors': 0,
+                'slow_operations': 0,
+                'avg_wait_time_ms': 0.0,
+                'max_wait_time_ms': 0.0,
+                'samples': []
+            })
+
+            for metric in metrics_list:
+                svc = metric.service
+                stats = stats_by_service[svc]
+
+                stats['total_operations'] += 1
+                stats['connection_errors'] += metric.connection_errors
+                stats['slow_operations'] += metric.slow_operations
+
+                if metric.wait_time_ms:
+                    stats['samples'].append(metric.wait_time_ms)
+                    stats['max_wait_time_ms'] = max(stats['max_wait_time_ms'], metric.wait_time_ms)
+
+            # Calculate averages
+            result = {}
+            for svc, stats in stats_by_service.items():
+                if stats['samples']:
+                    stats['avg_wait_time_ms'] = sum(stats['samples']) / len(stats['samples'])
+                del stats['samples']  # Remove raw samples from output
+                result[svc] = stats
+
+            return result
+
     def reset(self) -> None:
         """Reset all metrics."""
         with self.lock:
             self.query_history.clear()
+            self.connection_pool_history.clear()
             self.aggregate = AggregateMetrics()
             logger.info("Metrics reset")
 

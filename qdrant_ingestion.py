@@ -61,6 +61,14 @@ MONGODB_COLLECTION = "atlan_developer_docs"
 qdrant_client = QdrantClient(
     url=os.getenv("QDRANT_URI"),
     api_key=os.getenv("QDRANT_API_KEY"),
+    timeout=10.0,  # 10 second timeout for Qdrant operations
+    # Connection pool configuration for production
+    grpc_options={
+        'grpc.max_send_message_length': 100 * 1024 * 1024,  # 100MB
+        'grpc.max_receive_message_length': 100 * 1024 * 1024,  # 100MB
+        'grpc.keepalive_time_ms': 30000,  # 30s keepalive
+        'grpc.keepalive_timeout_ms': 10000,  # 10s keepalive timeout
+    }
 )
 
 # Configuration constants
