@@ -396,9 +396,10 @@ def process_sample_question(sample_text):
                 if sources:
                     assistant_message["sources"] = sources
 
-                # Add query_id if available (for RAG responses)
+                # Add query_id and cache status if available (for RAG responses)
                 if response_type == 'rag' and isinstance(response_data, dict):
                     assistant_message["query_id"] = response_data.get("query_id")
+                    assistant_message["cached"] = response_data.get("cached", False)
 
                 st.session_state.messages.append(assistant_message)
             except Exception as e:
@@ -434,6 +435,64 @@ def process_sample_question(sample_text):
 
 # Sidebar navigation
 st.sidebar.title("🤖 Atlan Support Copilot")
+
+# Add cache statistics section in sidebar
+if st.session_state.rag_pipeline:
+    with st.sidebar.expander("📊 Cache Statistics", expanded=False):
+        try:
+            from cache_manager import get_cache
+            cache = get_cache()
+            cache_stats = cache.get_stats()
+
+            st.markdown("### 🚀 Performance")
+
+            # Overall stats
+            total_hits = sum(cache_stats[key]['hits'] for key in cache_stats)
+            total_misses = sum(cache_stats[key]['misses'] for key in cache_stats)
+            overall_hit_rate = (total_hits / (total_hits + total_misses) * 100) if (total_hits + total_misses) > 0 else 0
+
+            col1, col2 = st.columns(2)
+            with col1:
+                st.metric("Overall Hit Rate", f"{overall_hit_rate:.1f}%")
+            with col2:
+                st.metric("Total Hits", total_hits)
+
+            st.markdown("---")
+
+            # Individual cache stats
+            for cache_name, stats in cache_stats.items():
+                cache_emoji = {
+                    'embedding': '🔤',
+                    'search': '🔍',
+                    'classification': '🏷️',
+                    'response': '💬'
+                }.get(cache_name, '📦')
+
+                st.markdown(f"**{cache_emoji} {cache_name.capitalize()}**")
+
+                col1, col2, col3 = st.columns(3)
+                with col1:
+                    st.write(f"Hit Rate: {stats['hit_rate']:.1f}%")
+                with col2:
+                    st.write(f"Size: {stats['size']}/{stats['max_size']}")
+                with col3:
+                    st.write(f"Hits: {stats['hits']}")
+
+            st.markdown("---")
+
+            # Cache controls
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("🗑️ Clear All", help="Clear all caches"):
+                    cache.clear_all()
+                    st.success("All caches cleared!")
+                    st.rerun()
+            with col2:
+                if st.button("🔄 Refresh", help="Refresh statistics"):
+                    st.rerun()
+
+        except Exception as e:
+            st.write(f"Cache stats unavailable: {str(e)}")
 
 # Add conversation management section in sidebar
 if st.session_state.rag_pipeline and st.session_state.conversation_session_id:
@@ -751,11 +810,21 @@ elif page == "💬 Chat Agent":
                             current_rag_topics = st.session_state.get('rag_settings', {}).get('rag_topics', ['How-to', 'Product', 'Best practices', 'API/SDK', 'SSO'])
                             st.markdown(f"**⚙️ Current RAG Topics:** {', '.join(current_rag_topics)}")
 
-                    # Show query ID if available
+                    # Show query ID and cache status if available
                     if message.get("query_id"):
                         st.markdown("---")
-                        st.markdown(f"**🆔 Query ID:** `{message['query_id']}`")
-                        st.caption("Use this ID when contacting support")
+                        col1, col2 = st.columns(2)
+                        with col1:
+                            st.markdown(f"**🆔 Query ID:** `{message['query_id']}`")
+                            st.caption("Use this ID when contacting support")
+                        with col2:
+                            # Show cache status from response_data if available
+                            if message.get("cached") is True:
+                                st.markdown("**⚡ Status:** `Cached`")
+                                st.caption("Instant response from cache")
+                            elif message.get("cached") is False:
+                                st.markdown("**🔄 Status:** `Generated`")
+                                st.caption("New AI-generated response")
 
                     # Show error details if available
                     if message.get("error") and message.get("error_details"):
@@ -875,9 +944,10 @@ elif page == "💬 Chat Agent":
                         if sources:
                             assistant_message["sources"] = sources
 
-                        # Add query_id if available (for RAG responses)
+                        # Add query_id and cache status if available (for RAG responses)
                         if response_type == 'rag' and isinstance(response_data, dict):
                             assistant_message["query_id"] = response_data.get("query_id")
+                            assistant_message["cached"] = response_data.get("cached", False)
 
                         st.session_state.messages.append(assistant_message)
 

@@ -8,6 +8,7 @@ from qdrant_client import QdrantClient
 from fastembed import TextEmbedding
 from openai import OpenAI
 import httpx
+import socket
 
 from memory_manager import get_memory_manager
 from validators import validate_query, validate_ticket, sanitize_text
@@ -278,8 +279,8 @@ Return only the enhanced query, no explanation:"""
 
             return results
 
-        except (ConnectionError, TimeoutError) as e:
-            logger.error(f"Connection error in vector search: {e}")
+        except (ConnectionError, TimeoutError, OSError, socket.gaierror) as e:
+            logger.error(f"Connection/DNS error in vector search: {e}")
             # Record connection error
             self.metrics.record_connection_pool_metrics(
                 service='qdrant',
@@ -307,13 +308,19 @@ Return only the enhanced query, no explanation:"""
         
         return sources
     
-    def generate_rag_response(self, query: str, context_docs: List[Dict], session_id: Optional[str] = None) -> str:
-        """Generate response using retrieved context with conversation memory"""
+    def generate_rag_response(self, query: str, context_docs: List[Dict], session_id: Optional[str] = None) -> tuple[str, bool]:
+        """
+        Generate response using retrieved context with conversation memory.
+
+        Returns:
+            tuple[str, bool]: (response_text, was_cached)
+        """
         import time
+        import hashlib
         openai_start = time.time()
 
         if not context_docs:
-            return "I couldn't find relevant information in the Atlan documentation to answer your question."
+            return ("I couldn't find relevant information in the Atlan documentation to answer your question.", False)
 
         # Prepare context from retrieved documents
         context_parts = []
@@ -321,6 +328,15 @@ Return only the enhanced query, no explanation:"""
             context_parts.append(f"Context {i}:\nSource: {doc['title']}\nContent: {doc['text']}\n")
 
         context = "\n".join(context_parts)
+
+        # Create hash of context for cache key (to ensure same context = same response)
+        context_hash = hashlib.sha256(context.encode('utf-8')).hexdigest()
+
+        # Check response cache first (ignore session_id for caching to maximize hits)
+        cached_response = self.cache.get_cached_response(query, context_hash)
+        if cached_response is not None:
+            logger.debug(f"Using cached response for query: {query[:50]}...")
+            return (cached_response, True)
 
         # Get conversation history if session_id is provided
         conversation_context = ""
@@ -361,7 +377,12 @@ Return only the enhanced query, no explanation:"""
                 response_time=openai_time
             )
 
-            return response.choices[0].message.content
+            generated_response = response.choices[0].message.content
+
+            # Cache the response for future queries with same context
+            self.cache.set_cached_response(query, context_hash, generated_response)
+
+            return (generated_response, False)
         except ConnectionError as e:
             logger.error(f"OpenAI API connection error: {e}")
             # Record connection error
@@ -370,10 +391,10 @@ Return only the enhanced query, no explanation:"""
                 connection_errors=1,
                 response_time=time.time() - openai_start
             )
-            return "I'm having trouble connecting to the AI service. Please try again in a moment."
+            return ("I'm having trouble connecting to the AI service. Please try again in a moment.", False)
         except ValueError as e:
             logger.error(f"OpenAI API validation error: {e}")
-            return "I encountered an issue with your request format. Please try rephrasing your question."
+            return ("I encountered an issue with your request format. Please try rephrasing your question.", False)
         except Exception as e:
             logger.error(f"Unexpected error generating response: {e}")
             # Record generic error
@@ -382,7 +403,7 @@ Return only the enhanced query, no explanation:"""
                 connection_errors=1,
                 response_time=time.time() - openai_start
             )
-            return "I encountered an unexpected error while generating a response. Please try again."
+            return ("I encountered an unexpected error while generating a response. Please try again.", False)
     
     def answer_question(self, query: str, session_id: Optional[str] = None) -> Dict[str, Any]:
         """Main RAG pipeline function with conversation memory, metrics, and rate limiting"""
@@ -446,10 +467,13 @@ Return only the enhanced query, no explanation:"""
             sources = self.extract_unique_sources(search_results)
 
             # Generate response with conversation context (use sanitized query)
-            answer = self.generate_rag_response(sanitized_query, search_results, session_id)
+            answer, response_was_cached = self.generate_rag_response(sanitized_query, search_results, session_id)
 
-            # Estimate tokens used (rough estimate)
-            estimated_tokens = len(sanitized_query.split()) * 1.3 + len(answer.split()) * 1.3 + 500
+            # Calculate tokens used (0 if cached, estimated if not)
+            if response_was_cached:
+                estimated_tokens = 0
+            else:
+                estimated_tokens = len(sanitized_query.split()) * 1.3 + len(answer.split()) * 1.3 + 500
 
             # Record successful metrics
             self.metrics.record_query(
@@ -459,11 +483,11 @@ Return only the enhanced query, no explanation:"""
                 search_method="vector",  # Could be dynamic based on actual search method
                 num_results=len(search_results),
                 error=False,
-                cached=False,  # Could check if results were cached
+                cached=response_was_cached,
                 model=self.settings.get('llm_model', LLM_MODEL)
             )
 
-            logger.info(f"Query {query_id} completed in {timer.get_elapsed():.2f}s with {len(search_results)} results")
+            logger.info(f"Query {query_id} completed in {timer.get_elapsed():.2f}s with {len(search_results)} results (cached: {response_was_cached})")
 
             return {
                 "answer": answer,
@@ -472,7 +496,8 @@ Return only the enhanced query, no explanation:"""
                 "query_enhancement_enabled": self.settings.get('enable_query_enhancement', ENABLE_QUERY_ENHANCEMENT),
                 "search_results": search_results,  # For debugging
                 "query_id": query_id,
-                "response_time": timer.get_elapsed()
+                "response_time": timer.get_elapsed(),
+                "cached": response_was_cached
             }
 
 # Classification system

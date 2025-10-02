@@ -3,6 +3,7 @@ Retry logic with exponential backoff for handling transient failures.
 """
 import time
 import logging
+import socket
 from functools import wraps
 from typing import Callable, Type, Tuple, Optional
 
@@ -96,11 +97,11 @@ class RetryConfig:
     OPENAI_MAX_DELAY = 30.0
     OPENAI_EXCEPTIONS = (ConnectionError, TimeoutError, Exception)
 
-    # Qdrant retries (connection issues)
+    # Qdrant retries (connection issues, DNS errors)
     QDRANT_RETRIES = 3
     QDRANT_BASE_DELAY = 0.5
     QDRANT_MAX_DELAY = 10.0
-    QDRANT_EXCEPTIONS = (ConnectionError, TimeoutError)
+    QDRANT_EXCEPTIONS = (ConnectionError, TimeoutError, OSError, socket.gaierror)
 
     # Embedding generation retries (model issues)
     EMBEDDING_RETRIES = 2

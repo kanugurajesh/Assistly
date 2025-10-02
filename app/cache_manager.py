@@ -23,7 +23,9 @@ class RAGCache:
         search_cache_size: int = 500,
         search_ttl: int = 1800,  # 30 minutes
         classification_cache_size: int = 500,
-        classification_ttl: int = 3600  # 1 hour
+        classification_ttl: int = 3600,  # 1 hour
+        response_cache_size: int = 500,
+        response_ttl: int = 3600  # 1 hour
     ):
         """
         Initialize caching layer.
@@ -35,6 +37,8 @@ class RAGCache:
             search_ttl: Search results cache TTL in seconds
             classification_cache_size: Maximum number of classifications to cache
             classification_ttl: Classification cache TTL in seconds
+            response_cache_size: Maximum number of responses to cache
+            response_ttl: Response cache TTL in seconds
         """
         # Embedding cache (most expensive to generate)
         self.embedding_cache = TTLCache(maxsize=embedding_cache_size, ttl=embedding_ttl)
@@ -48,6 +52,10 @@ class RAGCache:
         self.classification_cache = TTLCache(maxsize=classification_cache_size, ttl=classification_ttl)
         self.classification_lock = Lock()
 
+        # Response cache (most expensive - OpenAI response generation)
+        self.response_cache = TTLCache(maxsize=response_cache_size, ttl=response_ttl)
+        self.response_lock = Lock()
+
         # Statistics
         self.stats = {
             "embedding_hits": 0,
@@ -56,12 +64,15 @@ class RAGCache:
             "search_misses": 0,
             "classification_hits": 0,
             "classification_misses": 0,
+            "response_hits": 0,
+            "response_misses": 0,
         }
 
         logger.info(
             f"Cache initialized - Embeddings: {embedding_cache_size} ({embedding_ttl}s), "
             f"Search: {search_cache_size} ({search_ttl}s), "
-            f"Classification: {classification_cache_size} ({classification_ttl}s)"
+            f"Classification: {classification_cache_size} ({classification_ttl}s), "
+            f"Response: {response_cache_size} ({response_ttl}s)"
         )
 
     @staticmethod
@@ -233,6 +244,48 @@ class RAGCache:
             self.classification_cache[cache_key] = classification
             logger.debug(f"Cached classification for text: {text[:50]}...")
 
+    # ========== Response Cache ==========
+
+    def get_cached_response(self, query: str, context_hash: str) -> Optional[str]:
+        """
+        Get cached response for query with specific context.
+
+        Args:
+            query: User query
+            context_hash: Hash of context documents (to ensure same context)
+
+        Returns:
+            Cached response or None if not found
+        """
+        cache_key = self._cache_key(f"{query}|{context_hash}")
+
+        with self.response_lock:
+            response = self.response_cache.get(cache_key)
+
+            if response is not None:
+                self.stats["response_hits"] += 1
+                logger.debug(f"Response cache HIT for query: {query[:50]}...")
+                return response
+            else:
+                self.stats["response_misses"] += 1
+                logger.debug(f"Response cache MISS for query: {query[:50]}...")
+                return None
+
+    def set_cached_response(self, query: str, context_hash: str, response: str) -> None:
+        """
+        Cache response for query with specific context.
+
+        Args:
+            query: User query
+            context_hash: Hash of context documents
+            response: Generated response
+        """
+        cache_key = self._cache_key(f"{query}|{context_hash}")
+
+        with self.response_lock:
+            self.response_cache[cache_key] = response
+            logger.debug(f"Cached response for query: {query[:50]}...")
+
     # ========== Statistics ==========
 
     def get_stats(self) -> Dict[str, Any]:
@@ -284,21 +337,36 @@ class RAGCache:
                 ),
             }
 
+        with self.response_lock:
+            response_stats = {
+                "size": len(self.response_cache),
+                "max_size": self.response_cache.maxsize,
+                "hits": self.stats["response_hits"],
+                "misses": self.stats["response_misses"],
+                "hit_rate": hit_rate(
+                    self.stats["response_hits"],
+                    self.stats["response_misses"]
+                ),
+            }
+
         return {
             "embedding": embedding_stats,
             "search": search_stats,
             "classification": classification_stats,
+            "response": response_stats,
         }
 
     def clear_all(self) -> None:
         """Clear all caches. Acquires locks in consistent order to prevent deadlocks."""
-        # Acquire locks in consistent order: embedding -> search -> classification
+        # Acquire locks in consistent order: embedding -> search -> classification -> response
         with self.embedding_lock:
             self.embedding_cache.clear()
         with self.search_lock:
             self.search_cache.clear()
         with self.classification_lock:
             self.classification_cache.clear()
+        with self.response_lock:
+            self.response_cache.clear()
         logger.info("All caches cleared")
 
     def clear_embedding_cache(self) -> None:
@@ -318,6 +386,12 @@ class RAGCache:
         with self.classification_lock:
             self.classification_cache.clear()
             logger.info("Classification cache cleared")
+
+    def clear_response_cache(self) -> None:
+        """Clear only response cache."""
+        with self.response_lock:
+            self.response_cache.clear()
+            logger.info("Response cache cleared")
 
 
 # Global cache instance (singleton pattern)
